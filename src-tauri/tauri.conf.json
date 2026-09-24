@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Flock Finder",
+  "version": "0.1.0",
+  "identifier": "org.flockfinder.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:14210",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Flock Finder",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 600,
+        "theme": "Dark",
+        "backgroundColor": "#05080f"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ipc: http://ipc.localhost https:; worker-src 'self' blob:; child-src 'self' blob:; font-src 'self' data:"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["flockfinder"]
+      },
+      "mobile": [
+        {
+          "scheme": ["flockfinder"],
+          "appLink": false
+        }
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Utility",
+    "shortDescription": "Maps ALPR camera locations from OpenStreetMap",
+    "longDescription": "Flock Finder maps publicly sited automated license plate reader cameras using crowdsourced OpenStreetMap data. Coverage is incomplete; absence of a marker does not mean absence of a camera.",
+    "linux": {
+      "deb": { "depends": [] }
+    }
+  }
+}

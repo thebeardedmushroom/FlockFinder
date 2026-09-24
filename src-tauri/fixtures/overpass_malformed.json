@@ -1,0 +1,17 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62 (hand-edited fixture)",
+  "osm3s": { "timestamp_osm_base": "2026-09-10T17:00:00Z", "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL." },
+  "elements": [
+    { "type": "node", "id": 1001, "lat": 39.7392, "lon": -104.9903, "tags": { "man_made": "surveillance", "surveillance:type": "ALPR", "manufacturer": "Flock Safety", "direction": "180" } },
+    { "type": "node", "id": 1002, "lon": -104.9910, "tags": { "man_made": "surveillance", "surveillance:type": "ALPR" } },
+    { "type": "node", "id": 1003, "lat": "not-a-number", "lon": -104.9920, "tags": { "man_made": "surveillance", "surveillance:type": "ALPR" } },
+    { "type": "node", "id": 1004, "lat": 39.7400, "lon": 200.5, "tags": { "man_made": "surveillance", "surveillance:type": "ALPR" } },
+    { "type": "way", "id": 2001, "nodes": [1, 2, 3], "tags": { "man_made": "surveillance", "surveillance:type": "ALPR", "operator": "City of Example" } },
+    { "type": "way", "id": 2002, "center": { "lat": 39.7410, "lon": -104.9930 }, "nodes": [4, 5], "tags": { "man_made": "surveillance", "surveillance:type": "ALPR", "brand": "Motorola Solutions" } },
+    { "type": "node", "id": 1005, "lat": 39.7420, "lon": -104.9940 },
+    { "type": "node", "id": 1006, "lat": 39.7430, "lon": -104.9950, "tags": { "man_made": "surveillance", "surveillance:zone": "traffic", "camera:type": "fixed", "brand": "flock" } },
+    { "type": "relation", "id": 3001, "center": { "lat": 39.7440, "lon": -104.9960 }, "tags": { "man_made": "surveillance", "surveillance:type": "ALPR", "operator": "Flock Safety" } },
+    { "type": "node", "lat": 39.7450, "lon": -104.9970, "tags": { "man_made": "surveillance", "surveillance:type": "ALPR" } }
+  ]
+}

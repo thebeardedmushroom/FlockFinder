@@ -1,0 +1,74 @@
+[package]
+name = "flockfinder"
+version = "0.1.0"
+description = "Maps ALPR camera locations from OpenStreetMap"
+authors = ["Flock Finder contributors"]
+edition = "2021"
+license = "MIT"
+# Two binaries (the app and flockfinder-wifi-sync); `cargo run`/`tauri dev` launch the app.
+default-run = "flockfinder"
+# NOTE: this value is embedded in every outbound User-Agent header
+# (FlockFinder/<version> (+<repository>)). Set it to your real repository URL.
+repository = "https://github.com/OWNER/flockfinder"
+
+[lib]
+name = "flockfinder_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-notification = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-log = "2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.40", features = ["bundled"] }
+# The TLS backend is picked per platform below.
+# gzip: the worldwide camera sync is a large JSON body that Overpass serves compressed.
+reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "http2", "charset", "gzip"] }
+tokio = { version = "1", features = ["sync", "time", "macros", "rt-multi-thread"] }
+geo = "0.33"
+thiserror = "2"
+quick-xml = "0.42"
+getrandom = "0.3"
+sha2 = "0.11"
+base64 = "0.23"
+url = "2"
+regex = "1"
+chrono = "0.4"
+csv = "1"
+# The published camera snapshot is a gzipped file served without Content-Encoding.
+flate2 = "1"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+keyring = "4"
+reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
+
+[target.'cfg(windows)'.dependencies]
+# Answers WebView2's location permission request (its own prompt renders blank in Tauri).
+# Same version Tauri uses, so the controller types match.
+webview2-com = "0.38"
+
+[target.'cfg(target_os = "android")'.dependencies]
+# keyring's v1 API has no Android store: use keyring-core with the Keystore-backed store.
+keyring-core = "1"
+android-native-keyring-store = "1"
+# rustls + ring + Mozilla's bundled roots. native-tls would mean cross-compiling OpenSSL,
+# and reqwest's default rustls verifier needs JNI/Kotlin glue this app doesn't ship.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

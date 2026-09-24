@@ -1,0 +1,114 @@
+# Publishes the daily camera snapshot the app syncs from (see src-tauri/src/snapshot.rs).
+#
+# Runs the worldwide Overpass query once, validates the answer, and attaches it gzipped to
+# the rolling `camera-snapshot` release together with manifest.json. Every install then
+# downloads this file instead of querying Overpass itself.
+#
+# The data is © OpenStreetMap contributors, ODbL; the release notes carry the attribution.
+
+name: Camera snapshot
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: camera-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TAG: camera-snapshot
+      GH_TOKEN: ${{ github.token }}
+      # Tried in order; a second server only when the first fails outright.
+      ENDPOINTS: >-
+        https://overpass-api.de/api/interpreter
+        https://overpass.kumi.systems/api/interpreter
+      # Same floor and share as SYNC_PLAUSIBILITY_FLOOR / SYNC_MIN_PLAUSIBLE_SHARE in db.rs.
+      MIN_ELEMENTS: 1000
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: src-tauri/data/global_query.overpassql
+          sparse-checkout-cone-mode: false
+
+      - name: Query Overpass
+        run: |
+          ua="FlockFinderSnapshot (+${{ github.server_url }}/${{ github.repository }})"
+          for ep in $ENDPOINTS; do
+            echo "querying $ep"
+            if curl -fsS --compressed --max-time 1200 -A "$ua" \
+                 --data-urlencode "data@src-tauri/data/global_query.overpassql" \
+                 -o raw.json "$ep"; then
+              break
+            fi
+            rm -f raw.json
+            sleep 60
+          done
+          test -s raw.json
+
+      - name: Validate
+        run: |
+          if jq -e '(.remark // "") | ascii_downcase | contains("runtime error")' raw.json >/dev/null; then
+            echo "::error::Overpass reported: $(jq -r .remark raw.json)"; exit 1
+          fi
+          n=$(jq '.elements | length' raw.json)
+          echo "elements: $n"
+          if [ "$n" -lt "$MIN_ELEMENTS" ]; then
+            echo "::error::only $n elements; refusing to publish"; exit 1
+          fi
+          prev=0
+          if gh release download "$TAG" -p manifest.json -O prev-manifest.json 2>/dev/null; then
+            prev=$(jq -r '.elements // 0' prev-manifest.json)
+          fi
+          echo "previous: $prev"
+          if [ $((n * 2)) -lt "$prev" ]; then
+            echo "::error::$n elements is less than half the previous snapshot's $prev; refusing to publish"; exit 1
+          fi
+          echo "ELEMENTS=$n" >> "$GITHUB_ENV"
+
+      - name: Package
+        run: |
+          now=$(date -u +%s)
+          file="cameras-$now.json.gz"
+          # Compact, then gzip without a timestamp so identical data gives an identical file.
+          jq -c . raw.json | gzip -9 -n > "$file"
+          sha=$(sha256sum "$file" | cut -d' ' -f1)
+          if [ -f prev-manifest.json ] && [ "$(jq -r .sha256 prev-manifest.json)" = "$sha" ]; then
+            echo "data unchanged since the previous snapshot; nothing to publish"
+            echo "UNCHANGED=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          jq -n \
+            --argjson generated_at "$now" \
+            --arg osm_base "$(jq -r '.osm3s.timestamp_osm_base // empty' raw.json)" \
+            --argjson elements "$ELEMENTS" \
+            --arg file "$file" \
+            --argjson bytes "$(stat -c %s "$file")" \
+            --arg sha256 "$sha" \
+            '{format: 1, generated_at: $generated_at, osm_base: (if $osm_base == "" then null else $osm_base end),
+              elements: $elements, file: $file, bytes: $bytes, sha256: $sha256}' > manifest.json
+          cat manifest.json
+          echo "FILE=$file" >> "$GITHUB_ENV"
+
+      - name: Publish
+        if: env.UNCHANGED != '1'
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Camera snapshot" --latest=false --notes \
+              "Every ALPR camera mapped in OpenStreetMap, refreshed daily by the camera-snapshot workflow for the Flock Finder app. Data © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright"
+          fi
+          # Data first, manifest last: a client never sees a manifest naming a missing file.
+          gh release upload "$TAG" "$FILE"
+          gh release upload "$TAG" manifest.json --clobber
+          # Keep the previous data file too, for clients that read the old manifest a moment ago.
+          gh release view "$TAG" --json assets -q '.assets[].name' \
+            | grep -E '^cameras-[0-9]+\.json\.gz$' | sort -r | tail -n +3 \
+            | while read -r old; do gh release delete-asset "$TAG" "$old" --yes; done
