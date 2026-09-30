@@ -41,6 +41,10 @@ pub struct AppInfo {
     pub osm_redirect_uri: String,
     /// Tags surfaced in the detail panel when present, in display order.
     pub display_tags: Vec<String>,
+    /// "light" or "dark": the OS setting at launch, where the webview cannot report it (desktop).
+    pub system_theme: Option<String>,
+    /// A debug build (developer tools such as the navigation simulator are shown).
+    pub debug_build: bool,
 }
 
 #[tauri::command]
@@ -64,6 +68,8 @@ pub async fn get_app_info(app: AppHandle, state: State<'_, AppState>) -> AppResu
         disclaimer: DISCLAIMER.into(),
         osm_redirect_uri: osm::REDIRECT_URI.into(),
         display_tags: overpass::DISPLAY_TAGS.iter().map(|s| s.to_string()).collect(),
+        system_theme: crate::SYSTEM_THEME.get().map(|s| s.to_string()),
+        debug_build: cfg!(debug_assertions),
     })
 }
 
@@ -252,7 +258,9 @@ pub async fn get_cache_stats(state: State<'_, AppState>) -> AppResult<CacheStats
 #[tauri::command]
 pub async fn clear_cache(state: State<'_, AppState>) -> AppResult<()> {
     let conn = state.conn();
-    db::clear_cell_cache(&conn)
+    db::clear_cell_cache(&conn)?;
+    crate::roadnet::cache_clear(&conn)?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -317,6 +325,54 @@ pub async fn geocode(state: State<'_, AppState>, query: String) -> AppResult<Vec
         rusqlite::params![key, serde_json::to_string(&results)?, db::now()],
     )?;
     Ok(results)
+}
+
+// ---------------------------------------------------------------------------
+// Directions (camera-avoiding routes)
+// ---------------------------------------------------------------------------
+
+/// Plan the fastest and the camera-avoiding route between two points. Start and destination
+/// go to the routing server (Settings → Directions), and so do the cameras on the route
+/// being avoided; the camera data itself comes from the local store. When the first search
+/// leaves cameras on the route, the road map for the trip area is loaded from Overpass (the
+/// Overpass endpoint in Settings), through a local tile cache. Progress arrives as
+/// `route:progress` events.
+#[tauri::command]
+pub async fn plan_route(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    start: crate::routing::LatLon,
+    end: crate::routing::LatLon,
+) -> AppResult<crate::routing::RoutePlan> {
+    let (endpoint, overpass_endpoint, subs, max_extra) = {
+        let conn = state.conn();
+        let settings = db::load_settings(&conn)?;
+        (
+            crate::routing::normalize_endpoint(&settings.routing_endpoint),
+            settings.overpass_endpoint.clone(),
+            submissions::list(&conn)?,
+            settings.max_extra_secs_per_camera(),
+        )
+    };
+    let router = crate::routing::Valhalla { http: &state.http, endpoint: endpoint.clone() };
+    let roads = crate::roadnet::OverpassRoads {
+        http: &state.http,
+        endpoint: overpass_endpoint,
+        db: &state.db,
+        budget: Some(crate::roadnet::LOAD_BUDGET),
+    };
+    let cameras = |bbox: &BBox| {
+        let osm = {
+            let conn = state.conn();
+            db::cameras_in_bbox(&conn, bbox)?
+        };
+        Ok(crate::routing::merge_cameras(osm, &subs, bbox))
+    };
+    let progress = |p: crate::routing::Progress| {
+        let _ = app.emit("route:progress", p);
+    };
+    let opts = crate::routing::PlanOptions { max_extra_secs_per_camera: max_extra, ..Default::default() };
+    crate::routing::plan_with(&router, &roads, &endpoint, start, end, cameras, progress, opts).await
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -407,7 +463,7 @@ async fn pick_save_path(app: &AppHandle, title: &str, file_name: &str, filter: (
 // Picked files go through the fs plugin: on Android the pickers return content:// URIs,
 // which std::fs cannot open. On desktop these are plain paths.
 
-fn read_picked(app: &AppHandle, fp: &FilePath) -> AppResult<Vec<u8>> {
+pub(crate) fn read_picked(app: &AppHandle, fp: &FilePath) -> AppResult<Vec<u8>> {
     let mut opts = OpenOptions::new();
     opts.read(true);
     let mut bytes = Vec::new();

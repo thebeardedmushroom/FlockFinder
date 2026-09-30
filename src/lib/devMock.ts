@@ -50,6 +50,8 @@ export function installDevMock(): void {
     style_url: "https://tiles.openfreemap.org/styles/dark",
     refresh_interval_hours: 24,
     osm_client_id: "",
+    routing_endpoint: "",
+    max_detour_min_per_camera: 5,
     notifications_enabled: true,
     first_run_done: false,
   };
@@ -314,6 +316,11 @@ export function installDevMock(): void {
       if (q.includes("denver")) return [{ display_name: "Denver, Colorado, United States", lat: 39.7392, lon: -104.9849, bbox: { south: 39.614, west: -105.11, north: 39.914, east: -104.6 }, osm_type: "relation", osm_id: 1411339 }];
       return [];
     },
+    plan_route: async () => fail("offline", "network unavailable: directions need the Rust backend (not available in the browser mock)"),
+    // Navigation runs in Rust; the mock only says nothing is running.
+    nav_status: async () => ({ session: null, resume: null, ended: null }),
+    nav_readiness: async () => ({ platform: "desktop", device_location: false, precise: false, approximate: false, denied_permanently: false, location_enabled: true, notifications: true, play_services: false, power_save_gps_off: false }),
+    nav_keep_screen_on: async () => undefined,
     check_location: async () => ({ checked: true, on_land: true, place: "Denver, Colorado (mock)" }),
     list_submissions: async () => [...submissions],
     create_submission: async (a) => {

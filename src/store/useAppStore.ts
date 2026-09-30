@@ -8,18 +8,23 @@ import {
   type UserPosition,
 } from "../lib/proximity";
 import type { ViewCounts } from "../lib/clusterEngine";
+import type { Endpoint, RouteChoice } from "../lib/directions";
 import type {
   AlertState,
   AppInfo,
   BBox,
   Camera,
+  RoutePlan,
+  RouteProgress,
   Settings,
   Submission,
   SyncStatus,
   ViewState,
   WifiSighting,
 } from "../lib/types";
+import type { ActiveTrip, NavRouteView, NavSession } from "../lib/nav";
 import type { LodState } from "../map/cameraLayer";
+import { loadThemeChoice, saveThemeChoice, type ThemeChoice } from "../map/themes";
 
 /** The installed camera snapshot (the arrays live in lib/dataset.ts). */
 export interface DatasetInfo {
@@ -31,8 +36,22 @@ export interface DatasetInfo {
   decodeMs: number;
 }
 
-export type Panel = "none" | "filters" | "submissions" | "alerts" | "settings";
-export type Mode = "view" | "add" | "draw";
+export type Panel = "none" | "filters" | "submissions" | "alerts" | "settings" | "directions";
+/** `pick`: the next map click sets a directions start or destination. */
+export type Mode = "view" | "add" | "draw" | "pick";
+
+/** Directions: endpoints, the computed plan and the request in flight. Never persisted. */
+export interface DirectionsState {
+  start: Endpoint | null;
+  end: Endpoint | null;
+  /** Which endpoint a map click sets while in `pick` mode. */
+  picking: "start" | "end" | null;
+  plan: RoutePlan | null;
+  selected: RouteChoice;
+  busy: boolean;
+  progress: RouteProgress | null;
+  error: string | null;
+}
 
 export type Selection =
   | { kind: "camera"; camera: Camera }
@@ -120,8 +139,22 @@ interface AppStore {
   locateActive: boolean;
   /** Camera proximity alert preferences (per device, localStorage). */
   proximity: ProximitySettings;
+  /** Saved map theme choice; null until one is picked (see map/themes.ts). */
+  mapTheme: ThemeChoice | null;
   /** The proximity alert currently shown in the banner. */
   proximityAlert: ProximityAlert | null;
+  directions: DirectionsState;
+
+  /** The running navigation session (from Rust), or null. */
+  nav: NavSession | null;
+  /** Its route as drawn. */
+  navRoute: NavRouteView | null;
+  /** A trip that was running when the app was killed: offer to resume it. */
+  navResume: ActiveTrip | null;
+  /** The map follows the car (panning turns this off; Recenter turns it back on). */
+  navFollow: boolean;
+  /** North up instead of heading up. */
+  navNorthUp: boolean;
 
   setInfo(info: AppInfo): void;
   setSettings(settings: Settings): void;
@@ -158,7 +191,19 @@ interface AppStore {
   setUserPosition(p: UserPosition | null): void;
   setLocateActive(on: boolean): void;
   setProximity(p: Partial<ProximitySettings>): void;
+  setMapTheme(choice: ThemeChoice): void;
   setProximityAlert(a: ProximityAlert | null): void;
+  setDirections(d: Partial<DirectionsState>): void;
+  /** Set a start or destination (from a search, the map or the device position). */
+  setEndpoint(which: "start" | "end", e: Endpoint | null): void;
+  /** Next map click sets this endpoint. */
+  startPick(which: "start" | "end"): void;
+  clearDirections(): void;
+  setNav(nav: NavSession | null): void;
+  setNavRoute(r: NavRouteView | null): void;
+  setNavResume(t: ActiveTrip | null): void;
+  setNavFollow(on: boolean): void;
+  setNavNorthUp(on: boolean): void;
 }
 
 let toastSeq = 0;
@@ -197,7 +242,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   userPosition: null,
   locateActive: false,
   proximity: loadProximitySettings(),
+  mapTheme: loadThemeChoice(),
   proximityAlert: null,
+  directions: { start: null, end: null, picking: null, plan: null, selected: "avoid", busy: false, progress: null, error: null },
+  nav: null,
+  navRoute: null,
+  navResume: null,
+  navFollow: true,
+  navNorthUp: false,
 
   setInfo: (info) => set({ info }),
   setSettings: (settings) => set({ settings }),
@@ -225,6 +277,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       mode,
       draftPin: mode === "add" ? get().draftPin : null,
       drawPoints: mode === "draw" ? get().drawPoints : [],
+      directions: mode === "pick" ? get().directions : { ...get().directions, picking: null },
       contextMenu: null,
     }),
   setDraftPin: (draftPin) => set({ draftPin }),
@@ -259,4 +312,28 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ proximity });
   },
   setProximityAlert: (proximityAlert) => set({ proximityAlert }),
+  setDirections: (d) => set({ directions: { ...get().directions, ...d } }),
+  setEndpoint: (which, e) => set({ directions: { ...get().directions, [which]: e, error: null } }),
+  startPick: (which) =>
+    set({
+      mode: "pick",
+      draftPin: null,
+      drawPoints: [],
+      contextMenu: null,
+      directions: { ...get().directions, picking: which },
+    }),
+  clearDirections: () =>
+    set({
+      directions: { start: null, end: null, picking: null, plan: null, selected: "avoid", busy: false, progress: null, error: null },
+      mode: get().mode === "pick" ? "view" : get().mode,
+    }),
+  setNav: (nav) => set(nav ? { nav } : { nav: null, navRoute: null, navFollow: true }),
+  setNavRoute: (navRoute) => set({ navRoute }),
+  setNavResume: (navResume) => set({ navResume }),
+  setNavFollow: (navFollow) => set({ navFollow }),
+  setNavNorthUp: (navNorthUp) => set({ navNorthUp }),
+  setMapTheme: (mapTheme) => {
+    saveThemeChoice(mapTheme);
+    set({ mapTheme });
+  },
 }));

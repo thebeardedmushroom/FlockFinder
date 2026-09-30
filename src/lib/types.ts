@@ -41,6 +41,10 @@ export interface Settings {
   style_url: string;
   refresh_interval_hours: number;
   osm_client_id: string;
+  /** Valhalla server for directions; empty means the public FOSSGIS server. */
+  routing_endpoint: string;
+  /** Long trips: reroute a stretch only if that adds at most this many minutes per camera avoided; 0: no limit. */
+  max_detour_min_per_camera: number;
   notifications_enabled: boolean;
   first_run_done: boolean;
 }
@@ -55,6 +59,10 @@ export interface AppInfo {
   disclaimer: string;
   osm_redirect_uri: string;
   display_tags: string[];
+  /** The OS light/dark setting at launch, where the webview cannot report it (desktop). */
+  system_theme?: "dark" | "light" | null;
+  /** A debug build (developer tools such as the navigation simulator are shown). */
+  debug_build?: boolean;
 }
 
 /** State of the worldwide camera sync (`get_sync_status`, `sync:status` events). */
@@ -110,6 +118,114 @@ export interface GeocodeResult {
   bbox: BBox | null;
   osm_type: string | null;
   osm_id: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Directions (src-tauri/src/routing.rs)
+// ---------------------------------------------------------------------------
+
+export interface LatLon {
+  lat: number;
+  lon: number;
+}
+
+/** Why a camera is still on the avoidance route. */
+/** Why a camera is still on the avoidance route. Only "unavoidable" claims there's no way around it. */
+export type RemainingReason = "near_endpoint" | "unavoidable" | "long_detour" | "nearby" | "no_route" | "search_limit";
+
+/** What the road-map check found (see routing.rs). */
+export type RoadCheck =
+  | { status: "not_needed" }
+  | { status: "camera_free" }
+  | { status: "none_exists"; fewest: number }
+  | { status: "unavailable"; reason: string }
+  /** A long trip, fixed stretch by stretch: `fixed` of `total` stretches with cameras passed fewer afterwards. */
+  | { status: "stretches"; fixed: number; total: number; too_slow: number; limit_min: number | null };
+
+export interface RoadMapInfo {
+  tiles: number;
+  downloaded_tiles: number;
+  cached_tiles: number;
+  /** Not downloaded in time; a route found without them is still real. */
+  missing_tiles: number;
+  /** Map data received, uncompressed. */
+  downloaded_bytes: number;
+  ways: number;
+}
+
+export interface PlannedCamera {
+  /** `node/123` for mapped cameras, `submission/7` for your own. */
+  key: string;
+  lat: number;
+  lon: number;
+  category: string;
+  source: "osm" | "submission";
+  direction: string | null;
+  operator: string | null;
+  along_m: number;
+  distance_m: number;
+  /** Set on the avoidance route only. */
+  remaining: RemainingReason | null;
+}
+
+export interface Maneuver {
+  instruction: string;
+  /** Valhalla maneuver type (1–3 start, 4–6 destination, …). */
+  kind: number;
+  distance_m: number;
+  duration_s: number;
+  lat: number;
+  lon: number;
+  /** Index of that point in the route shape. */
+  shape_index: number;
+  street_names: string[];
+  begin_street_names: string[];
+  highway: boolean;
+  /** Spoken forms from the routing server (see routing.rs). */
+  verbal_alert: string | null;
+  verbal_pre: string | null;
+  verbal_post: string | null;
+  bearing_before: number | null;
+  bearing_after: number | null;
+  roundabout_exit_count: number | null;
+  exit_number: string | null;
+}
+
+export interface PlannedRoute {
+  /** [lat, lon] pairs. */
+  shape: [number, number][];
+  distance_m: number;
+  duration_s: number;
+  /** Cameras the route passes, in driving order. */
+  cameras: PlannedCamera[];
+  maneuvers: Maneuver[];
+  bbox: BBox;
+}
+
+export interface RoutePlan {
+  fastest: PlannedRoute;
+  avoid: PlannedRoute;
+  /** The avoidance route is the fastest route. */
+  same_route: boolean;
+  outcome: "clear" | "reduced" | "unchanged";
+  long_detour: boolean;
+  requests: number;
+  excluded: number;
+  warning: string | null;
+  /** Host of the routing server. */
+  server: string;
+  road_check: RoadCheck;
+  /** The avoidance route follows a road-map path (the second phase of the search). */
+  avoid_from_road_map: boolean;
+  /** Limits the first phase ran into: the server's 50 excluded cameras a request, and 8 requests. */
+  limits: { exclusion_cap: boolean; request_budget: boolean };
+  road_map: RoadMapInfo | null;
+}
+
+export interface RouteProgress {
+  step: number;
+  max: number;
+  message: string;
 }
 
 export interface LandCheck {

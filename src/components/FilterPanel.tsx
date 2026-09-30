@@ -1,8 +1,10 @@
 import { CATEGORY_LABELS, MARKER_COLORS, MARKER_HOLLOW, type MarkerKind } from "../lib/classify";
 import { ALL_KINDS, sightingVisible } from "../lib/filters";
 import { useAppStore } from "../store/useAppStore";
+import { useSheet } from "./useSheet";
 
 export default function FilterPanel() {
+  const sheet = useSheet();
   const filters = useAppStore((s) => s.filters);
   const dispatch = useAppStore((s) => s.dispatchFilter);
   const inView = useAppStore((s) => s.inView);
@@ -18,8 +20,9 @@ export default function FilterPanel() {
 
   const kinds: MarkerKind[] = ALL_KINDS;
   return (
-    <div className="panel">
-      <div className="panel-header">
+    <div ref={sheet.ref} className={`panel ${sheet.className}`}>
+      <div className="panel-header" {...sheet.headerProps}>
+        {sheet.grip}
         <span>Filters</span>
         <button className="close" onClick={() => setPanel("none")} aria-label="Close">
           ×

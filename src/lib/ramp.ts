@@ -64,16 +64,24 @@ function rampChroma(t: number): number {
 }
 
 const LUT_SIZE = 256;
-const LUT: Rgb[] = Array.from({ length: LUT_SIZE }, (_, i) => {
-  const t = i / (LUT_SIZE - 1);
-  return oklchInGamut(rampLightness(t), rampChroma(t), ACCENT_HUE);
-});
+
+export type Ramp = (t: number) => Rgb;
+
+/**
+ * The accent ramp between two lightnesses. The default runs dark to light for a dark
+ * ground; a light ground wants it reversed (l0 > l1), so sparse data still fades toward
+ * the ground and dense data stands out from it.
+ */
+export function makeRamp(l0: number, l1: number): Ramp {
+  const lut: Rgb[] = Array.from({ length: LUT_SIZE }, (_, i) => {
+    const t = i / (LUT_SIZE - 1);
+    return oklchInGamut(l0 + (l1 - l0) * t, rampChroma(t), ACCENT_HUE);
+  });
+  return (t) => lut[Math.round(Math.max(0, Math.min(1, t)) * (LUT_SIZE - 1))];
+}
 
 /** Ramp colour for t in [0, 1]. */
-export function rampRgb(t: number): Rgb {
-  const i = Math.round(Math.max(0, Math.min(1, t)) * (LUT_SIZE - 1));
-  return LUT[i];
-}
+export const rampRgb: Ramp = makeRamp(rampLightness(0), rampLightness(1));
 
 export function rgbCss(c: Rgb, alpha = 1): string {
   const [r, g, b] = c.map((v) => Math.round(v * 255));
@@ -90,11 +98,11 @@ export const STATE_RGB: Rgb = oklchInGamut(0.72, 0.16, STATE_HUE);
 export const STATE_CSS = rgbCss(STATE_RGB);
 
 /** CSS gradient of the ramp (legend bar). */
-export function rampGradientCss(stops = 9): string {
+export function rampGradientCss(ramp: Ramp = rampRgb, stops = 9): string {
   const parts: string[] = [];
   for (let i = 0; i < stops; i++) {
     const t = i / (stops - 1);
-    parts.push(`${rampCss(t)} ${(t * 100).toFixed(1)}%`);
+    parts.push(`${rgbCss(ramp(t))} ${(t * 100).toFixed(1)}%`);
   }
   return `linear-gradient(90deg, ${parts.join(", ")})`;
 }
@@ -113,4 +121,10 @@ export function rampStops(stops = 9, alpha = 1): (number | string)[] {
 export function relativeLuminance(c: Rgb): number {
   const lin = c.map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
   return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+}
+
+/** WCAG contrast ratio between two opaque colours (1–21). */
+export function contrastRatio(a: Rgb, b: Rgb): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
 }

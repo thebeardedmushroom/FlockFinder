@@ -8,6 +8,8 @@ export interface UserPosition {
   /** 95% confidence radius in metres, as reported by the Geolocation API. */
   accuracy: number;
   at: number;
+  /** Metres per second, when the source reports it. */
+  speed?: number | null;
 }
 
 export interface ProximitySettings {

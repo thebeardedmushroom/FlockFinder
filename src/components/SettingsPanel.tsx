@@ -1,14 +1,29 @@
 import { useEffect, useState } from "react";
 import { copyText, openOsm, reloadSettings, requestAreaRefresh, runSync, toastError } from "../lib/actions";
+import { DETOUR_LIMIT_CHOICES } from "../lib/directions";
 import { formatAgo, formatDistance, formatTime } from "../lib/geo";
 import { api } from "../lib/ipc";
 import { RADIUS_CHOICES } from "../lib/proximity";
+import { DEFAULT_DARK, DEFAULT_LIGHT, THEME_IDS, THEMES, isThemeChoice, type ThemeChoice } from "../map/themes";
+import { systemPrefersDark, useThemeChoice } from "../map/useMapStyle";
 import type { CacheStats, OsmAuthStatus, Settings, WifiDatasetStatus, WifiIngestResult } from "../lib/types";
 import { useAppStore } from "../store/useAppStore";
+import { useSheet } from "./useSheet";
 
 function ingestSummary(r: WifiIngestResult): string {
   const s = r.stats;
   return `${r.inserted} sighting(s) stored (${s.parsed} parsed, ${s.skipped_old} stale, ${s.skipped_invalid} invalid, ${s.skipped_unmatched} not Flock-like, ${s.deduplicated} duplicates).`;
+}
+
+/** The routing server's host, as set (empty: the default public server). */
+function serverHost(endpoint: string): string {
+  const e = endpoint.trim();
+  if (!e) return "valhalla1.openstreetmap.de (FOSSGIS e.V.)";
+  try {
+    return new URL(e).host;
+  } catch {
+    return e;
+  }
 }
 
 const REFRESH_OPTIONS: { value: number; label: string }[] = [
@@ -21,6 +36,7 @@ const REFRESH_OPTIONS: { value: number; label: string }[] = [
 ];
 
 export default function SettingsPanel() {
+  const sheet = useSheet();
   const settings = useAppStore((s) => s.settings);
   const info = useAppStore((s) => s.info);
   const setPanel = useAppStore((s) => s.setPanel);
@@ -29,6 +45,8 @@ export default function SettingsPanel() {
   const proximity = useAppStore((s) => s.proximity);
   const setProximity = useAppStore((s) => s.setProximity);
   const sync = useAppStore((s) => s.sync);
+  const themeChoice = useThemeChoice();
+  const setMapTheme = useAppStore((s) => s.setMapTheme);
   const [form, setForm] = useState<Settings | null>(settings);
   const [saving, setSaving] = useState(false);
   const [auth, setAuth] = useState<OsmAuthStatus | null>(null);
@@ -185,8 +203,9 @@ export default function SettingsPanel() {
   };
 
   return (
-    <div className="panel">
-      <div className="panel-header">
+    <div ref={sheet.ref} className={`panel ${sheet.className}`}>
+      <div className="panel-header" {...sheet.headerProps}>
+        {sheet.grip}
         <span>Settings</span>
         <button className="close" onClick={() => setPanel("none")} aria-label="Close">
           ×
@@ -245,13 +264,44 @@ export default function SettingsPanel() {
         <div className="section">
           <h4>Basemap</h4>
           <div className="field">
-            <label>MapLibre style URL</label>
-            <input className="input" value={form.style_url} onChange={(e) => set("style_url", e.target.value)} placeholder="https://…/style.json" />
+            <label htmlFor="map-theme">Map theme</label>
+            <select
+              id="map-theme"
+              className="select"
+              value={themeChoice ?? "system"}
+              onChange={(e) => {
+                if (isThemeChoice(e.target.value)) setMapTheme(e.target.value as ThemeChoice);
+              }}
+            >
+              <option value="system">
+                Match system ({THEMES[systemPrefersDark(info) ? DEFAULT_DARK : DEFAULT_LIGHT].name} now)
+              </option>
+              {(["dark", "light"] as const).map((scheme) => (
+                <optgroup key={scheme} label={scheme === "dark" ? "Dark" : "Light"}>
+                  {THEME_IDS.filter((id) => THEMES[id].scheme === scheme).map((id) => (
+                    <option key={id} value={id}>
+                      {THEMES[id].name} · {THEMES[id].description}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+              <option value="custom">Custom style URL…</option>
+            </select>
             <span className="muted small">
-              Any MapLibre style JSON URL. Keyless OpenFreeMap options: …/styles/dark (default),
-              …/fiord (deep navy), …/liberty, …/positron, …/bright. Leave blank for a plain background.
+              Applies immediately and is remembered on this device. The map button with the half-filled
+              circle steps through the themes. Map data by OpenFreeMap (keyless, no account).
             </span>
           </div>
+          {themeChoice === "custom" && (
+            <div className="field">
+              <label>MapLibre style URL</label>
+              <input className="input" value={form.style_url} onChange={(e) => set("style_url", e.target.value)} placeholder="https://…/style.json" />
+              <span className="muted small">
+                Any MapLibre style JSON URL; it is dimmed to sit behind the camera data. Save settings to
+                apply. Leave blank for a plain background.
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="section">
@@ -304,6 +354,52 @@ export default function SettingsPanel() {
             Works while the locate button is on and the app is open, and keeps the screen on meanwhile.
             Your position is checked on this device against cameras of the categories shown in Filters;
             it is never stored or uploaded. Changes apply immediately.
+          </div>
+        </div>
+
+        <div className="section">
+          <h4>Directions</h4>
+          <div className="field">
+            <label>Routing server (Valhalla)</label>
+            <input
+              className="input"
+              value={form.routing_endpoint}
+              onChange={(e) => set("routing_endpoint", e.target.value)}
+              placeholder="https://valhalla1.openstreetmap.de (default)"
+            />
+            <span className="muted small">
+              Directions send your start and destination, and the cameras on the route being avoided, to this
+              server. The default is the free public server run by FOSSGIS e.V. (fair use, rate limited). Point
+              this at your own Valhalla instance to keep trips on your own machine.
+            </span>
+            <span className="muted small">
+              Turn-by-turn navigation keeps your position on this device. Only when you leave the route does it
+              send your current position (and your destination) to{" "}
+              <strong>{serverHost(form.routing_endpoint)}</strong> to find a new route, at most once every 10
+              seconds. No location history is stored; the destination of a trip in progress is kept only so the
+              app can offer to resume it if Android closes it, and is deleted when the trip ends.
+            </span>
+          </div>
+          <div className="field">
+            <label htmlFor="detour-limit">Detour limit on long trips</label>
+            <select
+              id="detour-limit"
+              className="select"
+              value={form.max_detour_min_per_camera}
+              onChange={(e) => set("max_detour_min_per_camera", Number(e.target.value))}
+            >
+              {DETOUR_LIMIT_CHOICES.map((m) => (
+                <option key={m} value={m}>
+                  {m === 0 ? "No limit (avoid every camera it can)" : `${m} minutes per camera avoided${m === 5 ? " (default)" : ""}`}
+                </option>
+              ))}
+            </select>
+            <span className="muted small">
+              On trips over 60 km the avoidance route is fixed stretch by stretch around each group of cameras. A
+              stretch is only rerouted when that adds at most this much driving time for each camera it avoids;
+              otherwise the route keeps that road and its cameras are marked. A lower limit gives a quicker route
+              that passes more cameras. Also used when rerouting during navigation.
+            </span>
           </div>
         </div>
 

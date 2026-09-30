@@ -6,6 +6,7 @@ import { api } from "../lib/ipc";
 import type { Camera, Submission, WifiSighting } from "../lib/types";
 import { useAppStore } from "../store/useAppStore";
 import { useState } from "react";
+import { useSheet } from "./useSheet";
 
 function WifiDetail({ sighting }: { sighting: WifiSighting }) {
   const setPendingWatchArea = useAppStore((s) => s.setPendingWatchArea);
@@ -293,11 +294,14 @@ function SubmissionDetail({ submission }: { submission: Submission }) {
 
 export default function DetailPanel() {
   const selection = useAppStore((s) => s.selection);
+  // A new selection opens the sheet again.
+  const sheet = useSheet(selection);
   const select = useAppStore((s) => s.select);
   if (!selection) return null;
   return (
-    <div className="panel right">
-      <div className="panel-header">
+    <div ref={sheet.ref} className={`panel right ${sheet.className}`}>
+      <div className="panel-header" {...sheet.headerProps}>
+        {sheet.grip}
         <span>
           {selection.kind === "camera" ? "Camera" : selection.kind === "submission" ? "Your submission" : "Wi-Fi sighting"}
         </span>

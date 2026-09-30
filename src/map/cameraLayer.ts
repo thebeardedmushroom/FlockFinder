@@ -49,8 +49,9 @@ import {
   WIDE_MAX_LEVEL,
   type Band,
 } from "../lib/lod";
-import { ACCENT_RGB, rampRgb, relativeLuminance, STATE_RGB, type Rgb } from "../lib/ramp";
+import { relativeLuminance, type Rgb } from "../lib/ramp";
 import { ClusterClient } from "./clusterClient";
+import { DARK_OVERLAY, type OverlayPalette } from "./themes";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -288,6 +289,8 @@ interface HexDraw {
   to: number;
   start: number;
   dur: number;
+  /** Colours changed (theme switch): replace the GPU copy on the next frame. */
+  reupload?: boolean;
 }
 
 function hexAlpha(d: HexDraw, now: number): { a: number; p: number } {
@@ -379,7 +382,6 @@ const LABEL_FONT_PX = 11;
 const LABEL_H = 15;
 const LABEL_PAD = 4;
 const MONO = `"Cascadia Mono", Consolas, "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace`;
-const INK: Rgb = [0.02, 0.035, 0.05];
 
 function rgbStr(c: Rgb, a = 1): string {
   return `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${a})`;
@@ -409,6 +411,8 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
   private filter: EngineFilter = { flock: true, alpr: true, user: true, operator: "" };
   private cones = true;
   private hasData = false;
+  /** Colours for the current map theme. */
+  private pal: OverlayPalette = DARK_OVERLAY;
 
   /** Filtered set + hex bins of the latest build (the wide band needs only this). */
   private hexData: HexResult | null = null;
@@ -514,6 +518,20 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
 
   // ---- style integration -------------------------------------------------
 
+  /** Recolour for a new map theme. Data, level and animations carry on untouched. */
+  setPalette(pal: OverlayPalette): void {
+    if (pal === this.pal) return;
+    this.pal = pal;
+    this.hexInstCache.clear();
+    for (const d of this.hexDraws) {
+      if (d.gen !== this.hexGen || !this.hexData) continue;
+      const inst = this.hexInstances(d.level);
+      Object.assign(d, { data: inst.data, n: inst.n, reupload: true });
+    }
+    if (this.map?.getLayer("cam-stale")) this.map.setPaintProperty("cam-stale", "circle-stroke-color", pal.stale);
+    this.map?.triggerRepaint();
+  }
+
   /** Add the density field and the stale-camera layer; call on every style load, before addLayer(this). */
   installStyleLayers(map: maplibregl.Map, beforeId?: string): void {
     if (map.getLayer(this.hexLayer.id)) return;
@@ -529,7 +547,7 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
         paint: {
           "circle-radius": POINT_RADIUS_PX,
           "circle-color": "rgba(0,0,0,0)",
-          "circle-stroke-color": rgbStr(rampRgb(0.55), 0.7),
+          "circle-stroke-color": this.pal.stale,
           "circle-stroke-width": 1,
         },
       },
@@ -807,10 +825,11 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
     for (let i = 0; i < n; i++) {
       const [cx, cy] = hexCenter(g, h.q[i], h.r[i]);
       const t = densityT(h.count[i], h.max);
-      const f = rampRgb(t);
+      const ramp = this.pal.ramp;
+      const f = ramp(t);
       const fa = (0.22 + 0.7 * t) * HEX_FILL_OPACITY;
       // Hairline outlines a step brighter than their fill.
-      const l = rampRgb(Math.min(1, t + 0.22));
+      const l = ramp(Math.min(1, t + 0.22));
       const la = HEX_LINE_OPACITY;
       data.set([cx, cy, g.R, f[0] * fa, f[1] * fa, f[2] * fa, fa, l[0] * la, l[1] * la, l[2] * la, la], i * HEX_STRIDE);
     }
@@ -928,6 +947,11 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
         continue;
       }
       kept.push(d);
+      if (d.reupload && d.glBuf) {
+        gl.deleteBuffer(d.glBuf);
+        d.glBuf = null;
+      }
+      d.reupload = false;
       if (a <= 0.003 || d.n === 0) continue;
       if (!d.glBuf) {
         d.glBuf = gl.createBuffer();
@@ -1381,16 +1405,18 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
     cone.reset();
     const drawCones = this.cones && level >= CONE_MIN_LEVEL;
     const coneR = CONE_RADIUS_PX * coneScale(zoom);
-    const accent = ACCENT_RGB;
-    const state = STATE_RGB;
+    const pal = this.pal;
+    const { accent, state, ramp } = pal;
     for (const f of frame) {
       const { n, sx, sy, r, a } = f;
       if (n.count > 1) {
         const pm = pulseMult ? pulseMult(n.id) : 1;
-        const fill = rampRgb(0.18 + 0.82 * n.t);
-        const edge = rampRgb(Math.min(1, 0.4 + 0.8 * n.t));
-        const hc = rampRgb(Math.max(0.5, n.t));
-        halo.push(sx, sy, r * HALO_SCALE, hc[0], hc[1], hc[2], HALO_MAX_INTENSITY * (0.3 + 0.7 * n.t) * a * pm);
+        const fill = ramp(0.18 + 0.82 * n.t);
+        const edge = ramp(Math.min(1, pal.clusterEdge + 0.8 * n.t));
+        if (pal.halos) {
+          const hc = ramp(Math.max(0.5, n.t));
+          halo.push(sx, sy, r * HALO_SCALE, hc[0], hc[1], hc[2], HALO_MAX_INTENSITY * (0.3 + 0.7 * n.t) * a * pm);
+        }
         const fa = 0.9 * a;
         core.push(sx, sy, r, fill[0] * fa, fill[1] * fa, fill[2] * fa, fa, edge[0] * a, edge[1] * a, edge[2] * a, a, 0, n.users > 0 ? a : 0);
       } else {
@@ -1403,15 +1429,14 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
           }
         }
         const col = user ? state : accent;
-        halo.push(sx, sy, r * 3.2, col[0], col[1], col[2], (user ? 0.3 : flock ? 0.22 : 0.14) * a);
-        if (user) {
-          core.push(sx, sy, r, col[0] * a, col[1] * a, col[2] * a, a, 0.96 * a, 0.96 * a, 0.96 * a, a, 0, 0);
-        } else if (flock) {
-          const e = rampRgb(0.98);
+        if (pal.halos) halo.push(sx, sy, r * 3.2, col[0], col[1], col[2], (user ? 0.3 : flock ? 0.22 : 0.14) * a);
+        if (user || flock) {
+          const e = user ? pal.stateEdge : pal.accentEdge;
           core.push(sx, sy, r, col[0] * a, col[1] * a, col[2] * a, a, e[0] * a, e[1] * a, e[2] * a, a, 0, 0);
         } else {
-          const fa = 0.75 * a;
-          core.push(sx, sy, r, INK[0] * fa, INK[1] * fa, INK[2] * fa, fa, col[0] * a, col[1] * a, col[2] * a, a, 1, 0);
+          const fa = pal.ringFillAlpha * a;
+          const inner = pal.ringFill;
+          core.push(sx, sy, r, inner[0] * fa, inner[1] * fa, inner[2] * fa, fa, col[0] * a, col[1] * a, col[2] * a, a, 1, 0);
         }
       }
     }
@@ -1498,7 +1523,8 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
     ctx.font = `600 ${LABEL_FONT_PX}px ${MONO}`;
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
-    const accentLine = rgbStr(rampRgb(0.7), 0.55);
+    const ramp = this.pal.ramp;
+    const accentLine = rgbStr(ramp(0.7), 0.55);
     for (const p of placed) {
       const f = byId.get(p.id)!;
       const t = texts.get(p.id)!;
@@ -1506,7 +1532,7 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
       const tx = p.x + LABEL_PAD;
       const ty = p.y + p.h / 2 + 0.5;
       if (p.inside) {
-        const fill = rampRgb(0.18 + 0.82 * f.n.t);
+        const fill = ramp(0.18 + 0.82 * f.n.t);
         ctx.fillStyle = relativeLuminance(fill) > 0.3 ? "rgba(3, 10, 16, 0.95)" : "rgba(236, 250, 255, 0.96)";
         ctx.fillText(t.main, tx, ty);
       } else {
@@ -1522,13 +1548,13 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
         ctx.beginPath();
         ctx.roundRect(p.x, p.y, p.w, p.h, 2);
         ctx.fill();
-        ctx.strokeStyle = rgbStr(rampRgb(0.6), 0.4);
+        ctx.strokeStyle = rgbStr(ramp(0.6), 0.4);
         ctx.strokeRect(Math.round(p.x) + 0.5, Math.round(p.y) + 0.5, Math.round(p.w) - 1, Math.round(p.h) - 1);
         ctx.fillStyle = "rgba(226, 247, 255, 0.97)";
         ctx.fillText(t.main, tx, ty);
       }
       if (t.extra) {
-        ctx.fillStyle = rgbStr(STATE_RGB, 1);
+        ctx.fillStyle = rgbStr(this.pal.state, 1);
         ctx.fillText(t.extra, tx + t.main.length * this.charW, ty);
       }
     }
@@ -1537,7 +1563,7 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
 
   private drawSpider(ctx: CanvasRenderingContext2D, frame: FrameNode[], center: [number, number]): void {
     const legs = new Set(this.spider!.leaves);
-    ctx.strokeStyle = rgbStr(rampRgb(0.75), 0.6);
+    ctx.strokeStyle = rgbStr(this.pal.ramp(0.75), 0.6);
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (const f of frame) {
@@ -1546,7 +1572,7 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
       ctx.lineTo(f.sx, f.sy);
     }
     ctx.stroke();
-    ctx.fillStyle = rgbStr(rampRgb(0.9), 0.9);
+    ctx.fillStyle = rgbStr(this.pal.ramp(0.9), 0.9);
     ctx.beginPath();
     ctx.arc(center[0], center[1], 2, 0, Math.PI * 2);
     ctx.fill();
@@ -1554,14 +1580,15 @@ export class CameraLayer implements maplibregl.CustomLayerInterface {
 
   private drawSweep(ctx: CanvasRenderingContext2D, p: number, W: number, H: number): void {
     const x = -24 + p * (W + 48);
-    ctx.fillStyle = "rgba(5, 8, 15, 0.62)";
+    const { sweepShade, accent, ramp } = this.pal;
+    ctx.fillStyle = sweepShade;
     ctx.fillRect(Math.max(0, x), 0, W - Math.max(0, x), H);
     const trail = ctx.createLinearGradient(x - 90, 0, x, 0);
-    trail.addColorStop(0, rgbStr(ACCENT_RGB, 0));
-    trail.addColorStop(1, rgbStr(ACCENT_RGB, 0.16));
+    trail.addColorStop(0, rgbStr(accent, 0));
+    trail.addColorStop(1, rgbStr(accent, 0.16));
     ctx.fillStyle = trail;
     ctx.fillRect(x - 90, 0, 90, H);
-    ctx.fillStyle = rgbStr(rampRgb(0.95), 0.85);
+    ctx.fillStyle = rgbStr(ramp(this.pal.scheme === "light" ? 0.7 : 0.95), 0.85);
     ctx.fillRect(Math.round(x), 0, 1, H);
   }
 }

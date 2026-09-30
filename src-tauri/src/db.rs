@@ -17,6 +17,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (4, include_str!("../migrations/0004_wifi_sightings.sql")),
     (5, include_str!("../migrations/0005_sync_runs.sql")),
     (6, include_str!("../migrations/0006_camera_version.sql")),
+    (7, include_str!("../migrations/0007_road_tiles.sql")),
 ];
 
 /// Cameras absent from a fresh fetch are kept (hollow marker) for this long, then deleted.
@@ -465,6 +466,11 @@ pub struct Settings {
     /// 0 means "manual only"; otherwise 6–168.
     pub refresh_interval_hours: u32,
     pub osm_client_id: String,
+    /// Valhalla server for directions (base URL). Empty means the public FOSSGIS server.
+    pub routing_endpoint: String,
+    /// Long trips: a stretch is rerouted around its cameras only if that adds at most this
+    /// many minutes per camera avoided. 0 means no limit.
+    pub max_detour_min_per_camera: u32,
     pub notifications_enabled: bool,
     pub first_run_done: bool,
 }
@@ -479,6 +485,8 @@ impl Default for Settings {
             style_url: "https://tiles.openfreemap.org/styles/dark".to_string(),
             refresh_interval_hours: 24,
             osm_client_id: String::new(),
+            routing_endpoint: String::new(),
+            max_detour_min_per_camera: 5,
             notifications_enabled: true,
             first_run_done: false,
         }
@@ -501,7 +509,14 @@ impl Settings {
         self.snapshot_url = self.snapshot_url.trim().to_string();
         self.style_url = self.style_url.trim().to_string();
         self.osm_client_id = self.osm_client_id.trim().to_string();
+        self.routing_endpoint = self.routing_endpoint.trim().trim_end_matches('/').to_string();
+        self.max_detour_min_per_camera = self.max_detour_min_per_camera.min(60);
         self
+    }
+
+    /// The detour limit as the planner takes it (`None`: no limit).
+    pub fn max_extra_secs_per_camera(&self) -> Option<f64> {
+        (self.max_detour_min_per_camera > 0).then(|| self.max_detour_min_per_camera as f64 * 60.0)
     }
 
     pub fn ttl_secs(&self) -> i64 {
@@ -541,6 +556,11 @@ pub fn save_settings(conn: &Connection, settings: &Settings) -> AppResult<Settin
     Ok(validated)
 }
 
+pub fn delete_setting(conn: &Connection, key: &str) -> AppResult<()> {
+    conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+    Ok(())
+}
+
 pub fn get_json<T: serde::de::DeserializeOwned>(conn: &Connection, key: &str) -> AppResult<Option<T>> {
     match get_setting(conn, key)? {
         Some(s) => Ok(serde_json::from_str(&s).ok()),
@@ -564,6 +584,20 @@ mod tests {
     use super::*;
     use crate::grid::cells_for_bbox;
 
+    #[test]
+    fn the_detour_limit_defaults_to_5_minutes_and_0_means_none() {
+        let conn = test_conn();
+        // Settings saved before the limit existed.
+        set_setting(&conn, SETTINGS_KEY, r#"{"routing_endpoint":"https://example.org"}"#).unwrap();
+        let s = load_settings(&conn).unwrap();
+        assert_eq!(s.max_detour_min_per_camera, 5);
+        assert_eq!(s.max_extra_secs_per_camera(), Some(300.0));
+        let none = Settings { max_detour_min_per_camera: 0, ..Settings::default() };
+        assert_eq!(none.max_extra_secs_per_camera(), None);
+        let huge = Settings { max_detour_min_per_camera: 999, ..Settings::default() }.validated();
+        assert_eq!(huge.max_detour_min_per_camera, 60);
+    }
+
     fn element(id: i64, lat: f64, lon: f64, flock: bool) -> ParsedElement {
         let mut tags = BTreeMap::new();
         tags.insert("man_made".into(), "surveillance".into());
@@ -584,13 +618,13 @@ mod tests {
     fn migrations_apply_once() {
         let mut c = open_in_memory().unwrap();
         let first = migrate(&mut c).unwrap();
-        assert_eq!(first, vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(first, vec![1, 2, 3, 4, 5, 6, 7]);
         let second = migrate(&mut c).unwrap();
         assert!(second.is_empty());
         let n: i64 = c
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 6);
+        assert_eq!(n, 7);
     }
 
     #[test]

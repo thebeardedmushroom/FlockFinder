@@ -36,24 +36,59 @@ fn local(name: &str) -> &str {
 /// All `<trkpt>` elements are used in document order (segments are concatenated). If the
 /// file has no track points at all, `<rtept>` elements are used instead.
 pub fn parse_gpx(xml: &str) -> Result<Vec<(f64, f64)>, GpxError> {
+    Ok(parse_points(xml)?.into_iter().map(|p| (p.lat, p.lon)).collect())
+}
+
+/// A track point with its recorded time, if it has one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TimedPoint {
+    pub lat: f64,
+    pub lon: f64,
+    /// `<time>`, milliseconds since the Unix epoch.
+    pub time_ms: Option<i64>,
+}
+
+/// Like `parse_gpx`, keeping each point's `<time>` (for replaying a recorded drive).
+pub fn parse_points(xml: &str) -> Result<Vec<TimedPoint>, GpxError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
 
     let mut root_seen = false;
     let mut depth = 0i64;
-    let mut track: Vec<(f64, f64)> = Vec::new();
-    let mut route: Vec<(f64, f64)> = Vec::new();
+    let mut track: Vec<TimedPoint> = Vec::new();
+    let mut route: Vec<TimedPoint> = Vec::new();
     let mut trkpt_total = 0usize;
     let mut rtept_total = 0usize;
+    // Inside a point that was kept (track or route), and inside its <time>.
+    let mut open: Option<bool> = None;
+    let mut in_time = false;
 
     loop {
         let event = reader.read_event().map_err(|e| {
             GpxError::InvalidXml(format!("{e} at byte {}", reader.buffer_position()))
         })?;
         match event {
-            Event::End(_) => depth -= 1,
+            Event::End(ref e) => {
+                depth -= 1;
+                let name = local(e.name().as_ref()).to_ascii_lowercase();
+                if name == "time" {
+                    in_time = false;
+                } else if name == "trkpt" || name == "rtept" {
+                    open = None;
+                }
+            }
+            Event::Text(ref t) if in_time => {
+                let Some(is_trk) = open else { continue };
+                let text = t.xml10_content().into_owned();
+                let time = chrono::DateTime::parse_from_rfc3339(text.trim()).ok().map(|d| d.timestamp_millis());
+                let list = if is_trk { &mut track } else { &mut route };
+                if let Some(p) = list.last_mut() {
+                    p.time_ms = time;
+                }
+            }
             Event::Start(ref e) | Event::Empty(ref e) => {
-                if matches!(event, Event::Start(_)) {
+                let starts = matches!(event, Event::Start(_));
+                if starts {
                     depth += 1;
                 }
                 let name = local(e.name().as_ref()).to_ascii_lowercase();
@@ -62,6 +97,10 @@ pub fn parse_gpx(xml: &str) -> Result<Vec<(f64, f64)>, GpxError> {
                     if name != "gpx" {
                         return Err(GpxError::NotGpx(name));
                     }
+                    continue;
+                }
+                if name == "time" && starts {
+                    in_time = true;
                     continue;
                 }
                 let is_trk = name == "trkpt";
@@ -89,10 +128,14 @@ pub fn parse_gpx(xml: &str) -> Result<Vec<(f64, f64)>, GpxError> {
                 }
                 if let (Some(lat), Some(lon)) = (lat, lon) {
                     if crate::geo_util::valid_coord(lat, lon) {
+                        let p = TimedPoint { lat, lon, time_ms: None };
                         if is_trk {
-                            track.push((lat, lon));
+                            track.push(p);
                         } else {
-                            route.push((lat, lon));
+                            route.push(p);
+                        }
+                        if starts {
+                            open = Some(is_trk);
                         }
                     }
                 }

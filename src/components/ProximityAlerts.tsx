@@ -1,9 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { playChime } from "../lib/chime";
 import { cameraKind, vendorLabel } from "../lib/classify";
 import { cameraVisible } from "../lib/filters";
 import { compassLabel, formatDistance, haversineM } from "../lib/geo";
 import { api } from "../lib/ipc";
+import { navCovered } from "../lib/nav";
 import { bearingDeg, checkProximity, newTracker, type ProximityAlert } from "../lib/proximity";
 import { cameraKey, type Camera } from "../lib/types";
 import { useAppStore } from "../store/useAppStore";
@@ -12,7 +13,12 @@ import { useAppStore } from "../store/useAppStore";
 const REFETCH_M = 250;
 /** Cameras around you are loaded out to this many alert radii (at least 1 km). */
 const LOOKAHEAD_FACTOR = 5;
-const BANNER_MS = 12000;
+/** Horizontal movement before a press on the banner becomes a swipe (so taps still click). */
+const SWIPE_START_PX = 8;
+/** A swipe dismisses once it covers this share of the banner's width, or flicks fast enough. */
+const SWIPE_DISMISS_SHARE = 0.3;
+const SWIPE_DISMISS_SPEED = 0.6; // px per ms
+const SWIPE_ANIM_MS = 180;
 
 function alertTitle(a: ProximityAlert): string {
   const what = cameraKind(a.camera) === "flock" ? "Flock camera" : "ALPR camera";
@@ -32,7 +38,9 @@ function alertBody(a: ProximityAlert): string {
  */
 export default function ProximityAlerts() {
   const pos = useAppStore((s) => s.userPosition);
-  const locateActive = useAppStore((s) => s.locateActive);
+  // While navigating, positions come from the navigation session.
+  const locateActive = useAppStore((s) => s.locateActive || s.nav !== null);
+  const navigating = useAppStore((s) => s.nav !== null);
   const proximity = useAppStore((s) => s.proximity);
   const alert = useAppStore((s) => s.proximityAlert);
 
@@ -70,8 +78,10 @@ export default function ProximityAlerts() {
     const s = useAppStore.getState();
     const byKey = new Map<string, Camera>();
     for (const c of nearby.current) byKey.set(cameraKey(c), c);
+    // Cameras on the route are navigation's to announce (once, ahead of time); only others here.
     const targets = [...byKey.values()]
       .filter((c) => cameraVisible(c, s.filters))
+      .filter((c) => !(navigating && navCovered.has(cameraKey(c))))
       .map((c) => ({ key: cameraKey(c), lat: c.lat, lon: c.lon }));
     const hits = checkProximity(pos, targets, proximity.radiusM, tracker.current, Date.now());
     if (hits.length === 0) return;
@@ -93,17 +103,18 @@ export default function ProximityAlerts() {
     if (document.visibilityState !== "visible" || !document.hasFocus()) {
       void api.notify(alertTitle(a), alertBody(a)).catch(() => {});
     }
-  }, [pos, proximity]);
+  }, [pos, proximity, navigating]);
 
-  // The banner clears itself after a while.
+  // The banner stays until it is swiped away, closed, or its Details are opened. A newer
+  // alert replaces it in place; reset any swipe that was in progress on the old one.
+  const bannerRef = useRef<HTMLDivElement>(null);
+  const swipe = useRef<{ id: number; x0: number; y0: number; t0: number; dx: number; active: boolean; moved: boolean } | null>(null);
   useEffect(() => {
-    if (!alert) return;
-    const t = window.setTimeout(() => {
-      const s = useAppStore.getState();
-      s.setProximityAlert(null);
-      s.setHighlighted([]);
-    }, BANNER_MS);
-    return () => window.clearTimeout(t);
+    const el = bannerRef.current;
+    if (!el) return;
+    el.style.transition = "";
+    el.style.translate = "";
+    el.style.opacity = "";
   }, [alert]);
 
   // Keep the screen on while alerts can fire (phone on a mount). Released when locate is off.
@@ -136,8 +147,78 @@ export default function ProximityAlerts() {
     s.setProximityAlert(null);
     s.setHighlighted([]);
   };
+  const openDetails = () => {
+    const camera = alert.camera;
+    dismiss();
+    useAppStore.getState().select({ kind: "camera", camera });
+  };
+
+  const setOffset = (dx: number, width: number) => {
+    const el = bannerRef.current!;
+    el.style.translate = `${dx}px 0`;
+    el.style.opacity = String(Math.max(0.25, 1 - Math.abs(dx) / width));
+  };
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    swipe.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: e.timeStamp, dx: 0, active: false, moved: false };
+    bannerRef.current!.style.transition = "none";
+  };
+  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const g = swipe.current;
+    if (!g || g.id !== e.pointerId) return;
+    const dx = e.clientX - g.x0;
+    if (!g.active) {
+      if (Math.abs(dx) < SWIPE_START_PX || Math.abs(dx) < Math.abs(e.clientY - g.y0)) return;
+      g.active = true;
+      g.moved = true;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* pointer already gone: the swipe still tracks while it stays over the banner */
+      }
+    }
+    g.dx = dx;
+    setOffset(dx, e.currentTarget.offsetWidth);
+  };
+  const onPointerEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const g = swipe.current;
+    if (!g || g.id !== e.pointerId) return;
+    const el = e.currentTarget;
+    const width = el.offsetWidth;
+    const speed = Math.abs(g.dx) / Math.max(1, e.timeStamp - g.t0);
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.style.transition = reduced ? "none" : `translate ${SWIPE_ANIM_MS}ms ease-out, opacity ${SWIPE_ANIM_MS}ms ease-out`;
+    if (g.active && e.type === "pointerup" && (Math.abs(g.dx) > width * SWIPE_DISMISS_SHARE || speed > SWIPE_DISMISS_SPEED)) {
+      el.style.translate = `${Math.sign(g.dx) * (width + 40)}px 0`;
+      el.style.opacity = "0";
+      window.setTimeout(dismiss, reduced ? 0 : SWIPE_ANIM_MS);
+    } else {
+      el.style.translate = "";
+      el.style.opacity = "";
+    }
+    g.active = false;
+  };
+  // A swipe that started on a button must not also press it.
+  const onClickCapture = (e: ReactMouseEvent) => {
+    if (swipe.current?.moved) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    swipe.current = null;
+  };
+
   return (
-    <div className={`proximity-alert ${cameraKind(alert.camera)}`} role="alert">
+    <div
+      ref={bannerRef}
+      className={`proximity-alert ${cameraKind(alert.camera)}`}
+      role="alert"
+      title="Swipe sideways to dismiss"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd}
+      onPointerCancel={onPointerEnd}
+      onClickCapture={onClickCapture}
+    >
       <span className="icon" aria-hidden>
         ⚠
       </span>
@@ -145,7 +226,7 @@ export default function ProximityAlerts() {
         <div className="title">{alertTitle(alert)}</div>
         <div className="sub">{alertBody(alert)}</div>
       </div>
-      <button className="btn small" onClick={() => useAppStore.getState().select({ kind: "camera", camera: alert.camera })}>
+      <button className="btn small" onClick={openDetails}>
         Details
       </button>
       <button className="close" onClick={dismiss} aria-label="Dismiss">

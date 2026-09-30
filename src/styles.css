@@ -103,7 +103,29 @@ code {
 .map {
   position: absolute;
   inset: 0;
-  background: var(--bg);
+  /* The theme background (set by MapView), so an empty map already looks like the theme. */
+  background: var(--map-bg, var(--bg));
+}
+
+/* Light map themes. The app chrome stays dark (panels and controls carry their own opaque
+   backgrounds); only what is drawn straight onto the map changes. */
+:root[data-map-scheme="light"] .map-wrap::after {
+  background: radial-gradient(ellipse at center, transparent 70%, rgba(20, 26, 36, 0.14) 100%);
+}
+
+:root[data-map-scheme="light"] .maplibregl-user-location-dot {
+  box-shadow: 0 0 0 3px rgba(11, 18, 32, 0.25), 0 0 10px rgba(14, 116, 144, 0.7);
+}
+
+:root[data-map-scheme="light"] .maplibregl-user-location-accuracy-circle {
+  background-color: rgba(11, 18, 32, 0.07);
+  border-color: rgba(11, 18, 32, 0.45);
+}
+
+:root[data-map-scheme="light"] .marker-draft {
+  background: #6d28d9;
+  border-color: #ffffff;
+  box-shadow: 0 0 0 1px #0b1220, 0 2px 8px rgba(11, 18, 32, 0.45);
 }
 
 .map.mode-add,
@@ -128,6 +150,14 @@ code {
 
 .maplibregl-ctrl-group button:hover {
   background-color: var(--accent-dim) !important;
+}
+
+/* Map theme toggle: an inline SVG in currentColor, tinted like the other control icons. */
+.maplibregl-ctrl-group button.ff-theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7fe9ff;
 }
 
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
@@ -173,6 +203,20 @@ code {
 
 .maplibregl-ctrl-attrib a {
   color: var(--accent);
+}
+
+/* The compact (phone) form: MapLibre styles it black-on-white, which our dark background
+   turns into black-on-black. */
+.maplibregl-ctrl-attrib.maplibregl-compact {
+  color: #8fa8c4;
+  line-height: 16px;
+  border: 1px solid rgba(150, 170, 190, 0.16);
+}
+
+.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button,
+.maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+  background-color: transparent;
+  filter: invert(0.8);
 }
 
 /* ---------- toolbar ---------- */
@@ -873,6 +917,175 @@ input[type="checkbox"] {
   box-shadow: inset 0 0 18px rgba(255, 176, 32, 0.06);
 }
 
+.callout.success {
+  border-color: rgba(61, 255, 167, 0.55);
+  background: rgba(61, 255, 167, 0.08);
+}
+
+/* ---------- directions ---------- */
+/* While a start or destination is being picked, the map needs the room (a bottom sheet on a phone). */
+.panel.directions.picking {
+  display: none;
+}
+
+.directions .choices {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 6px;
+  background: rgba(3, 6, 12, 0.7);
+}
+
+.directions .choices button,
+.directions .steps button {
+  background: none;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  padding: 7px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.directions .choices button:hover,
+.directions .steps button:hover {
+  background: var(--accent-dim);
+}
+
+.swap-row {
+  margin: -6px 0 6px;
+}
+
+.route-progress {
+  margin-top: 8px;
+}
+
+.route-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.route-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 9px 10px;
+  background: rgba(3, 6, 12, 0.55);
+}
+
+.route-card.selected {
+  border-color: var(--text);
+  box-shadow: inset 0 0 14px rgba(216, 243, 255, 0.08);
+}
+
+.route-card .grow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.route-card-title {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.route-card-line {
+  font-size: 13px;
+}
+
+/* The same colours the map uses on dark themes (app chrome is always dark). */
+.route-swatch {
+  width: 6px;
+  align-self: stretch;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.route-swatch.avoid {
+  background: #3dffa7;
+}
+
+.route-swatch.fastest {
+  background: repeating-linear-gradient(180deg, #c9d3de 0 7px, transparent 7px 11px);
+}
+
+.route-cams {
+  min-width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  border: 2px solid #ff8a3d;
+  color: #ffb27a;
+}
+
+.route-cams.zero {
+  border-color: #3dffa7;
+  color: #3dffa7;
+}
+
+.route-camera {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  border-left-color: #ff8a3d;
+}
+
+.route-cam-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid #ff8a3d;
+  flex-shrink: 0;
+}
+
+.route-camera .remaining {
+  color: #ffc9a3;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.steps li::marker {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.steps button {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+}
+
 pre.code {
   background: rgba(3, 6, 12, 0.75);
   border: 1px solid var(--border-soft);
@@ -1166,6 +1379,10 @@ table.report tr:hover td {
   border-radius: var(--radius);
   box-shadow: var(--shadow), 0 0 22px rgba(255, 45, 85, 0.45);
   animation: toast-in 0.18s ease-out;
+  /* Swiped sideways to dismiss: the page must not scroll or zoom under the finger. */
+  touch-action: pan-y;
+  user-select: none;
+  cursor: grab;
 }
 
 .proximity-alert.alpr {
@@ -1321,10 +1538,58 @@ table.report tr:hover td {
     max-height: 72%;
     border-radius: 14px 14px 0 0;
     border-bottom: none;
+    transition: transform 0.24s ease-out;
+  }
+
+  /* Collapsed: only the header shows (see useSheet.tsx). */
+  .panel.sheet-collapsed {
+    transform: translateY(calc(100% - var(--sheet-peek, 52px)));
   }
 
   .panel-header {
     padding: 12px 16px;
+  }
+
+  /* A sheet's header is its handle: vertical drags move the sheet, not the page. (Modals use
+     the same header class and keep it plain.) */
+  .panel > .panel-header {
+    position: relative;
+    padding-top: 20px;
+    touch-action: none;
+    user-select: none;
+    cursor: grab;
+  }
+
+  .sheet-grip {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 72px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: grab;
+  }
+
+  .sheet-grip::before {
+    content: "";
+    position: absolute;
+    top: 7px;
+    left: 18px;
+    right: 18px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--muted);
+    opacity: 0.8;
+  }
+
+  .sheet-grip:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: 6px;
   }
 
   .panel-body {
@@ -1355,10 +1620,12 @@ table.report tr:hover td {
     grid-template-columns: minmax(96px, 38%) 1fr;
   }
 
-  /* Sit above MapLibre's attribution bar; MapView publishes the space it covers. */
+  /* Sit above MapLibre's attribution bar while it is expanded; MapView publishes the space it
+     covers (0 once it folds to its ⓘ button). No bottom inset: the map ends at the footer,
+     which already pads for the gesture bar. */
   .map-corner {
     left: calc(8px + var(--safe-left));
-    bottom: calc(6px + var(--safe-bottom) + var(--attrib-space, 0px));
+    bottom: calc(8px + var(--attrib-space, 0px));
     max-width: calc(100% - 76px);
     gap: 4px;
   }
@@ -1448,5 +1715,448 @@ table.report tr:hover td {
   /* MapLibre's attribution control carries the OSM credit on phones. */
   .footer .attribution {
     display: none;
+  }
+}
+
+/* ------------------------------------------------------------------------------------------
+ * Turn-by-turn navigation. Everything sits on solid dark cards (not the map), so it reads the
+ * same over every map theme, light or dark; the route line itself uses each theme's route
+ * colours and casing. Tap targets are at least 56 px and text is large: this is used while
+ * driving.
+ * ---------------------------------------------------------------------------------------- */
+.app.navigating .maplibregl-ctrl-bottom-right,
+.app.navigating .maplibregl-ctrl-top-right {
+  display: none;
+}
+
+/* The map's own proximity alerts (cameras off the route) sit under the maneuver banner. */
+.app.navigating .proximity-alert {
+  top: calc(150px + env(safe-area-inset-top, 0px));
+  z-index: 9;
+}
+
+.nav-view {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+}
+
+.nav-view > * {
+  pointer-events: auto;
+}
+
+.nav-banner {
+  position: absolute;
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  left: 8px;
+  right: 8px;
+  background: #0b1a2e;
+  border: 1px solid rgba(160, 200, 240, 0.28);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  color: #fff;
+  overflow: hidden;
+}
+
+.nav-view.rerouting .nav-banner {
+  background: #3a2600;
+  border-color: var(--warn);
+}
+
+.nav-step {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  min-height: 84px;
+}
+
+.nav-icon {
+  display: flex;
+  flex: none;
+  color: #fff;
+}
+
+.nav-icon.spin svg {
+  animation: nav-spin 1.6s linear infinite;
+}
+
+@keyframes nav-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.nav-dist {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+
+.nav-instr {
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.nav-street {
+  font-size: 15px;
+  color: #b9d3ee;
+  margin-top: 2px;
+}
+
+.nav-then {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: #06101d;
+  border-top: 1px solid rgba(160, 200, 240, 0.18);
+}
+
+.nav-then .nav-instr {
+  font-size: 15px;
+  font-weight: 500;
+  color: #d9e8f7;
+}
+
+.nav-chips {
+  position: absolute;
+  top: calc(118px + env(safe-area-inset-top, 0px));
+  left: 8px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.nav-chip {
+  pointer-events: auto;
+  max-width: 100%;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: #1a2536;
+  border: 1px solid rgba(160, 200, 240, 0.3);
+  text-align: left;
+}
+
+.nav-chip.warn {
+  background: #3a2600;
+  border-color: var(--warn);
+}
+
+.nav-chip.info {
+  background: #10263d;
+}
+
+.nav-camera-alert {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #2a0710;
+  border: 2px solid var(--flock);
+  box-shadow: var(--shadow), 0 0 22px rgba(255, 45, 85, 0.45);
+  color: #fff;
+  animation: toast-in 0.18s ease-out;
+}
+
+.nav-camera-alert.far {
+  background: #2a1b04;
+  border-color: var(--warn);
+  box-shadow: var(--shadow);
+}
+
+.nav-camera-alert .icon {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.nav-camera-alert .title {
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.nav-camera-alert .sub {
+  font-size: 14px;
+  color: #f1d2d9;
+}
+
+.nav-controls {
+  position: absolute;
+  right: 10px;
+  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.nav-view:has(.nav-camera-alert) .nav-controls,
+.nav-view:has(.nav-camera-alert) .nav-sim {
+  bottom: calc(190px + env(safe-area-inset-bottom, 0px));
+}
+
+.btn.nav-round {
+  min-width: 56px;
+  min-height: 56px;
+  padding: 0 16px;
+  border-radius: 28px;
+  font-size: 20px;
+  font-weight: 700;
+  background: #0b1a2e;
+  color: #fff;
+  border: 1px solid rgba(160, 200, 240, 0.35);
+  box-shadow: var(--shadow);
+}
+
+.btn.nav-round.primary {
+  font-size: 17px;
+  background: var(--accent);
+  color: #001018;
+}
+
+.btn.nav-big {
+  min-height: 56px;
+  padding: 0 22px;
+  font-size: 18px;
+  font-weight: 700;
+  border-radius: 10px;
+}
+
+.nav-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: #0b1a2e;
+  border-top: 1px solid rgba(160, 200, 240, 0.28);
+  color: #fff;
+}
+
+.nav-eta-time {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.nav-eta-rest {
+  font-size: 15px;
+  color: #b9d3ee;
+}
+
+.nav-cams {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 72px;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: rgba(255, 45, 85, 0.16);
+  border: 1px solid var(--flock);
+}
+
+.nav-cams.zero {
+  background: rgba(61, 255, 167, 0.12);
+  border-color: var(--ok);
+}
+
+.nav-cams strong {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.nav-cams span {
+  font-size: 11px;
+  color: #d9e8f7;
+  white-space: nowrap;
+}
+
+.nav-sim {
+  position: absolute;
+  left: 10px;
+  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+  max-width: 260px;
+}
+
+.nav-sim-body {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(9, 15, 27, 0.94);
+  border: 1px dashed var(--user);
+}
+
+.nav-puck {
+  width: 40px;
+  height: 40px;
+}
+
+.nav-puck svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.nav-puck .halo {
+  fill: rgba(0, 229, 255, 0.18);
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.nav-puck .arrow {
+  fill: #00b8d4;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.nav-puck.weak .arrow {
+  fill: #7d97b3;
+}
+
+.nav-puck.weak .halo {
+  fill: rgba(125, 151, 179, 0.2);
+  stroke-dasharray: 4 3;
+}
+
+.nav-arrived {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(2, 6, 12, 0.55);
+}
+
+.nav-arrived-card {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 22px 18px;
+  border-radius: 14px;
+  background: #0b1a2e;
+  border: 1px solid rgba(160, 200, 240, 0.3);
+  box-shadow: var(--shadow);
+  color: #fff;
+  text-align: center;
+}
+
+.nav-arrived-card h2 {
+  margin: 0;
+  font-size: 26px;
+}
+
+.nav-dest {
+  color: #b9d3ee;
+  font-size: 15px;
+}
+
+.nav-summary {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  margin: 6px 0 4px;
+}
+
+.nav-summary > div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 4px;
+  border-radius: 10px;
+  background: #06101d;
+}
+
+.nav-summary strong {
+  font-size: 20px;
+}
+
+.nav-summary span {
+  font-size: 12px;
+  color: #b9d3ee;
+}
+
+.nav-start {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Landscape phone: the maneuver card on the left, so the road ahead keeps the width. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .nav-banner {
+    right: auto;
+    width: min(360px, 45vw);
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    left: calc(8px + env(safe-area-inset-left, 0px));
+  }
+
+  .nav-step {
+    min-height: 70px;
+  }
+
+  .nav-dist {
+    font-size: 26px;
+  }
+
+  .nav-chips {
+    left: auto;
+    right: 8px;
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    width: min(320px, 40vw);
+    align-items: flex-end;
+  }
+
+  .nav-camera-alert {
+    right: auto;
+    width: min(360px, 45vw);
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .nav-bottom {
+    padding-top: 8px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .nav-controls,
+  .nav-sim {
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* The sheet grab bar only exists on phone-width screens (panels are side panels otherwise). */
+@media (min-width: 721px) {
+  .sheet-grip {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel {
+    transition: none !important;
   }
 }

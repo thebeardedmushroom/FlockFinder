@@ -1,0 +1,18 @@
+{
+  "_comment": "Maneuver icons, 24x24, drawn as round-capped strokes. Used by the navigation banner (src/components/ManeuverIcon.tsx) and, through scripts/gen-nav-assets.mjs, as the Android notification's drawables. Names match nav::route::maneuver_icon in Rust. \"faint\" strokes are the road not taken.",
+  "straight": { "strokes": ["M12 20V5", "M7 10l5-5 5 5"] },
+  "depart": { "strokes": ["M12 17V5", "M7 10l5-5 5 5"], "dots": [[12, 20, 2]] },
+  "slight_right": { "strokes": ["M9 20v-7l7-7", "M11 6h5v5"] },
+  "right": { "strokes": ["M8 20v-8a4 4 0 0 1 4-4h7", "M15 4l4 4-4 4"] },
+  "sharp_right": { "strokes": ["M9 20V6l8 10", "M11 16h6v-6"] },
+  "slight_left": { "strokes": ["M15 20v-7L8 6", "M13 6H8v5"] },
+  "left": { "strokes": ["M16 20v-8a4 4 0 0 0-4-4H5", "M9 4L5 8l4 4"] },
+  "sharp_left": { "strokes": ["M15 20V6L7 16", "M13 16H7v-6"] },
+  "uturn": { "strokes": ["M16 20V9a4.5 4.5 0 0 0-9 0v6", "M3 11l4 4 4-4"] },
+  "keep_right": { "strokes": ["M12 20v-7l5-6", "M12 7h5v5"], "faint": ["M12 13L7 7"] },
+  "keep_left": { "strokes": ["M12 20v-7L7 7", "M12 7H7v5"], "faint": ["M12 13l5-6"] },
+  "merge": { "strokes": ["M7 20v-3a5 5 0 0 1 5-5", "M17 20v-3a5 5 0 0 0-5-5", "M12 12V4", "M8 8l4-4 4 4"] },
+  "roundabout": { "strokes": ["M12 20v-3", "M8 13a4 4 0 1 0 8 0a4 4 0 1 0-8 0", "M15 10l4-5", "M15 5h4v4"] },
+  "arrive": { "strokes": ["M12 21s-7-6.5-7-11.5a7 7 0 0 1 14 0C19 14.5 12 21 12 21z"], "dots": [[12, 9.5, 2.5]] },
+  "ferry": { "strokes": ["M4 15h16l-2 4H6z", "M7 15v-5h10v5", "M12 10V6"] }
+}

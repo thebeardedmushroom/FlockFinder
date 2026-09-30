@@ -1,4 +1,4 @@
-//! Shared HTTP client: descriptive User-Agent, exponential backoff, Nominatim rate limit.
+//! Shared HTTP client: descriptive User-Agent, exponential backoff, Nominatim and routing rate limits.
 //!
 //! Every outbound request in the app goes through this module.
 
@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 pub const BACKOFF_SECS: [u64; 3] = [2, 8, 30];
 /// Minimum spacing between Nominatim requests.
 pub const NOMINATIM_MIN_INTERVAL: Duration = Duration::from_millis(1000);
+/// Minimum spacing between routing requests (the public Valhalla server is fair-use).
+pub const ROUTING_MIN_INTERVAL: Duration = Duration::from_millis(1000);
 
 pub fn user_agent() -> String {
     format!(
@@ -25,6 +27,7 @@ pub fn should_retry(status: u16) -> bool {
 pub struct HttpClient {
     pub client: reqwest::Client,
     nominatim_last: tokio::sync::Mutex<Option<Instant>>,
+    routing_last: tokio::sync::Mutex<Option<Instant>>,
 }
 
 impl HttpClient {
@@ -41,6 +44,7 @@ impl HttpClient {
         Ok(HttpClient {
             client,
             nominatim_last: tokio::sync::Mutex::new(None),
+            routing_last: tokio::sync::Mutex::new(None),
         })
     }
 
@@ -80,15 +84,24 @@ impl HttpClient {
 
     /// Block until at least one second has passed since the previous Nominatim request.
     pub async fn nominatim_slot(&self) {
-        let mut last = self.nominatim_last.lock().await;
-        if let Some(prev) = *last {
-            let elapsed = prev.elapsed();
-            if elapsed < NOMINATIM_MIN_INTERVAL {
-                tokio::time::sleep(NOMINATIM_MIN_INTERVAL - elapsed).await;
-            }
-        }
-        *last = Some(Instant::now());
+        slot(&self.nominatim_last, NOMINATIM_MIN_INTERVAL).await;
     }
+
+    /// Block until at least one second has passed since the previous routing request.
+    pub async fn routing_slot(&self) {
+        slot(&self.routing_last, ROUTING_MIN_INTERVAL).await;
+    }
+}
+
+async fn slot(last: &tokio::sync::Mutex<Option<Instant>>, min: Duration) {
+    let mut last = last.lock().await;
+    if let Some(prev) = *last {
+        let elapsed = prev.elapsed();
+        if elapsed < min {
+            tokio::time::sleep(min - elapsed).await;
+        }
+    }
+    *last = Some(Instant::now());
 }
 
 /// Android TLS: rustls on `ring` with Mozilla's bundled root store (see Cargo.toml for why).

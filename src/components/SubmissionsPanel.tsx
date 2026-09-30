@@ -2,8 +2,10 @@ import { toastError } from "../lib/actions";
 import { formatCoords, formatTime } from "../lib/geo";
 import { api } from "../lib/ipc";
 import { useAppStore } from "../store/useAppStore";
+import { useSheet } from "./useSheet";
 
 export default function SubmissionsPanel() {
+  const sheet = useSheet();
   const submissions = useAppStore((s) => s.submissions);
   const setPanel = useAppStore((s) => s.setPanel);
   const setMode = useAppStore((s) => s.setMode);
@@ -24,8 +26,9 @@ export default function SubmissionsPanel() {
   };
 
   return (
-    <div className="panel">
-      <div className="panel-header">
+    <div ref={sheet.ref} className={`panel ${sheet.className}`}>
+      <div className="panel-header" {...sheet.headerProps}>
+        {sheet.grip}
         <span>Your submissions</span>
         <button className="close" onClick={() => setPanel("none")} aria-label="Close">
           ×

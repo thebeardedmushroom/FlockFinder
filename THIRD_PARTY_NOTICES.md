@@ -48,6 +48,37 @@ The sightings in that dataset originate from the crowdsourced WiGLE wardriving d
 published CSV from the project above. Wigle-format CSV files imported by the user are
 produced by the user's own tools and stay on the user's machine.
 
+## OpenFreeMap map styles
+
+`src/map/styles/openfreemap-{dark,fiord,positron}.json` are snapshots of the styles OpenFreeMap
+serves at `https://tiles.openfreemap.org/styles/<name>`, from
+<https://github.com/hyperknot/openfreemap-styles> (MIT License, Copyright (c) 2023 Zsolt Ero).
+The map themes recolour them at runtime; the tiles, fonts and sprites they reference are
+fetched from OpenFreeMap.
+
+- **Dark**: forked from [openmaptiles/dark-matter-gl-style](https://github.com/openmaptiles/dark-matter-gl-style).
+- **Fiord**: forked from [openmaptiles/fiord-color-gl-style](https://github.com/openmaptiles/fiord-color-gl-style).
+- **Positron**: forked from [openmaptiles/positron-gl-style](https://github.com/openmaptiles/positron-gl-style),
+  itself derived from CartoDB Basemaps designed by Stamen and Paul Norman for CartoDB Inc.
+  (CC BY 3.0).
+
+The OpenMapTiles styles' code is released under the BSD 3-Clause License and their design
+under CC BY 4.0. Map data © OpenStreetMap contributors; © OpenMapTiles. Fonts: Noto Sans (SIL
+Open Font License 1.1). Icons: Maki (CC0 1.0). Natural Earth data: public domain. The map's
+attribution control shows the OpenFreeMap / OpenMapTiles / OpenStreetMap credit on every theme.
+
 ## OpenStreetMap
 
 Camera data © OpenStreetMap contributors, Open Database License (ODbL). See README.md.
+
+## Android libraries for turn-by-turn navigation
+
+- **Google Play services Location** (`com.google.android.gms:play-services-location`): the
+  fused location provider and the location-settings dialog. Free and needs no API key; used
+  under the [Android Software Development Kit License](https://developer.android.com/studio/terms)
+  and Google APIs terms. Phones without Play services use the platform GPS provider instead.
+- **AndroidX Media** (`androidx.media:media`): audio focus for spoken guidance. Apache
+  License 2.0.
+
+Spoken instructions are the Valhalla routing server's own text (see *Directions* in the
+README); the maneuver icons and the camera chime are original to this app.

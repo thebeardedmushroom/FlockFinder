@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { runSync } from "../lib/actions";
 import { bandHasLegend, formatCount, formatExact, nodeRadius, type Band } from "../lib/lod";
 import { rampGradientCss, rampCss, STATE_CSS } from "../lib/ramp";
+import { DARK_OVERLAY } from "../map/themes";
+import { useMapStyle } from "../map/useMapStyle";
 import { useAppStore } from "../store/useAppStore";
 
 const BAND_NAME: Record<Band, string> = { wide: "WIDE", mid: "MID", near: "NEAR", detail: "DETAIL" };
@@ -79,7 +81,7 @@ export function Hud() {
       <span className="sep" />
       <span className="k">Z</span>
       <span className="v">{zoom.toFixed(1)}</span>
-      {lod && <span className="muted">{BAND_NAME[lod.band]}</span>}
+      {lod && !narrow && <span className="muted">{BAND_NAME[lod.band]}</span>}
       {hex && (
         <>
           <span className="sep" />
@@ -103,6 +105,10 @@ const LEGEND_OPEN_KEY = "ff.legendOpen";
 
 export function Legend() {
   const lod = useAppStore((s) => s.lod);
+  // The bar shows the colours the map uses, which a light theme runs pale to dark.
+  const overlay = useMapStyle()?.overlay ?? DARK_OVERLAY;
+  const gradient = rampGradientCss(overlay.ramp);
+  const shade = overlay.scheme === "light" ? "Darkness" : "Brightness";
   const narrow = useNarrow();
   // On a phone the legend costs real map, so it folds to its title bar; the choice sticks.
   const [open, setOpen] = useState(() => {
@@ -143,7 +149,7 @@ export function Legend() {
         {title("Cameras per cell")}
         {folded ? null : (
           <>
-        <div className="ramp" style={{ background: rampGradientCss() }} />
+        <div className="ramp" style={{ background: gradient }} />
         <div className="ticks">
           {ticks.map((v) => (
             <span key={v} style={{ left: `${pos(v)}%` }}>
@@ -198,7 +204,7 @@ export function Legend() {
           </g>
         ))}
       </svg>
-      <div className="ramp" style={{ background: rampGradientCss() }} />
+      <div className="ramp" style={{ background: gradient }} />
       <div className="ticks">
         <span style={{ left: "0%" }}>sparse</span>
         <span className="max" style={{ left: "100%" }}>
@@ -208,7 +214,7 @@ export function Legend() {
       <div className="legend-note">
         {narrow
           ? `Log density · min size < ${formatExact(lod.minProportional)}`
-          : `Brightness = log density · below ${formatExact(lod.minProportional)}: minimum size`}
+          : `${shade} = log density · below ${formatExact(lod.minProportional)}: minimum size`}
         {lod.usersIncluded > 0 && narrow && (
           <>
             {" · "}

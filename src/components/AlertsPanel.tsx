@@ -4,6 +4,7 @@ import { formatAgo, formatDistance, formatTime } from "../lib/geo";
 import { api } from "../lib/ipc";
 import type { AlertEvent, AreaSummary, RouteReport, RouteSummary } from "../lib/types";
 import { useAppStore } from "../store/useAppStore";
+import { useSheet } from "./useSheet";
 
 function History({ type, id }: { type: "area" | "route"; id: number }) {
   const [events, setEvents] = useState<AlertEvent[] | null>(null);
@@ -98,6 +99,7 @@ function overlapNote(me: AreaSummary, all: AreaSummary[]): string | null {
 }
 
 export default function AlertsPanel() {
+  const sheet = useSheet();
   const alertState = useAppStore((s) => s.alertState);
   const setPanel = useAppStore((s) => s.setPanel);
   const setMode = useAppStore((s) => s.setMode);
@@ -169,8 +171,9 @@ export default function AlertsPanel() {
   const toggle = (key: string) => setOpen(open === key ? null : key);
 
   return (
-    <div className="panel">
-      <div className="panel-header">
+    <div ref={sheet.ref} className={`panel ${sheet.className}`}>
+      <div className="panel-header" {...sheet.headerProps}>
+        {sheet.grip}
         <span>Alerts</span>
         <button className="close" onClick={() => setPanel("none")} aria-label="Close">
           ×

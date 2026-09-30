@@ -13,6 +13,9 @@ import type {
   GeocodeResult,
   GpxImport,
   LandCheck,
+  LatLon,
+  RoutePlan,
+  RouteProgress,
   OsmAuthStatus,
   OuiEntry,
   WifiDatasetStatus,
@@ -60,6 +63,8 @@ export const api = {
 
   geocode: (query: string) => invoke<GeocodeResult[]>("geocode", { query }),
   checkLocation: (lat: number, lon: number) => invoke<LandCheck>("check_location", { lat, lon }),
+  /** Fastest and camera-avoiding routes; progress arrives through onRouteProgress. */
+  planRoute: (start: LatLon, end: LatLon) => invoke<RoutePlan>("plan_route", { start, end }),
 
   listSubmissions: () => invoke<Submission[]>("list_submissions"),
   createSubmission: (input: SubmissionInput) => invoke<Submission>("create_submission", { input }),
@@ -117,6 +122,10 @@ export function onAlertsRefreshed(handler: (o: RefreshOutcome) => void): Promise
 
 export function onOsmAuth(handler: (o: AuthOutcome) => void): Promise<UnlistenFn> {
   return listen<AuthOutcome>("osm:auth", (e) => handler(e.payload));
+}
+
+export function onRouteProgress(handler: (p: RouteProgress) => void): Promise<UnlistenFn> {
+  return listen<RouteProgress>("route:progress", (e) => handler(e.payload));
 }
 
 export function onSyncStatus(handler: (s: SyncStatus) => void): Promise<UnlistenFn> {

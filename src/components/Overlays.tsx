@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { copyText } from "../lib/actions";
+import { coordLabel } from "../lib/directions";
 import { formatCoords } from "../lib/geo";
 import { api } from "../lib/ipc";
 import { useAppStore } from "../store/useAppStore";
@@ -74,6 +75,8 @@ export function ContextMenu() {
   const setPendingWatchArea = useAppStore((s) => s.setPendingWatchArea);
   const setMode = useAppStore((s) => s.setMode);
   const setDraftPin = useAppStore((s) => s.setDraftPin);
+  const setEndpoint = useAppStore((s) => s.setEndpoint);
+  const setPanel = useAppStore((s) => s.setPanel);
 
   useEffect(() => {
     if (!menu) return;
@@ -85,12 +88,23 @@ export function ContextMenu() {
   if (!menu) return null;
   // Positioned inside the map container; flip so the menu never runs off-screen.
   const MENU_W = 220;
-  const MENU_H = 170;
+  const MENU_H = 240;
   const left = Math.max(4, Math.min(menu.x + 4, window.innerWidth - MENU_W - 4));
   const top = menu.y + MENU_H + 40 > window.innerHeight ? Math.max(4, menu.y - MENU_H) : menu.y + 4;
   return (
     <div className="context-menu" style={{ left, top }}>
       <div className="coords">{formatCoords(menu.lat, menu.lon)}</div>
+      {(["start", "end"] as const).map((which) => (
+        <button
+          key={which}
+          onClick={() => {
+            setEndpoint(which, { lat: menu.lat, lon: menu.lon, label: coordLabel(menu.lat, menu.lon) });
+            setPanel("directions");
+          }}
+        >
+          {which === "start" ? "Directions from here" : "Directions to here"}
+        </button>
+      ))}
       <button onClick={() => setPendingWatchArea({ lat: menu.lat, lon: menu.lon })}>
         Create watch area here
       </button>

@@ -9,10 +9,13 @@ pub mod geo_util;
 mod gpx;
 pub mod grid;
 pub mod http;
+mod nav;
 mod nominatim;
 mod osm;
 pub mod overpass;
 mod points;
+mod roadnet;
+mod routing;
 mod scheduler;
 mod snapshot;
 mod state;
@@ -22,6 +25,10 @@ pub mod wifi;
 
 use state::AppState;
 use tauri::Manager;
+
+/// The OS light/dark setting at launch (desktop only), read before the window is forced dark.
+/// The map theme defaults to it; see `AppInfo::system_theme`.
+pub static SYSTEM_THEME: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 use tauri_plugin_deep_link::DeepLinkExt;
 
 #[cfg(desktop)]
@@ -91,7 +98,21 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         // Reads/writes files the user picks; on Android those are content:// URIs.
         .plugin(tauri_plugin_fs::init())
+        .plugin(nav::init())
         .setup(|app| {
+            // The window follows the OS theme until here. Note which one that is, then keep the
+            // title bar dark to match the app chrome. (A theme forced in tauri.conf.json would
+            // also force the webview's prefers-color-scheme, hiding the OS setting from the page.)
+            #[cfg(desktop)]
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(theme) = window.theme() {
+                    let _ = SYSTEM_THEME.set(if matches!(theme, tauri::Theme::Light) { "light" } else { "dark" });
+                }
+                if let Err(e) = window.set_theme(Some(tauri::Theme::Dark)) {
+                    log::warn!("could not set the window theme: {e}");
+                }
+            }
+
             let data_dir = app.path().app_data_dir()?;
             let db_path = data_dir.join("flockfinder.sqlite");
             let mut conn = db::open(&db_path)?;
@@ -149,6 +170,7 @@ pub fn run() {
             commands::clear_cache,
             commands::load_fixture,
             commands::geocode,
+            commands::plan_route,
             commands::check_location,
             commands::list_submissions,
             commands::create_submission,
@@ -187,7 +209,44 @@ pub fn run() {
             commands::wifi_clear,
             commands::get_wifi_sightings,
             commands::wifi_oui_list,
+            nav::commands::nav_start,
+            nav::commands::nav_stop,
+            nav::commands::nav_status,
+            nav::commands::nav_route,
+            nav::commands::nav_covered_cameras,
+            nav::commands::nav_set_muted,
+            nav::commands::nav_sim,
+            nav::commands::nav_forget_resume,
+            nav::commands::nav_readiness,
+            nav::commands::nav_request,
+            nav::commands::nav_keep_screen_on,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Flock Finder");
+        .build(tauri::generate_context!())
+        .expect("error while building Flock Finder")
+        .run(|_app, _event| {
+            // Android: navigation's foreground service keeps the process alive after the app is
+            // swiped away from recents. Tauri would exit when the activity goes (so keep the
+            // process while a session runs), and a relaunched activity gets no webview
+            // (tauri-apps/tauri#15671), so build the window again when the app comes back.
+            #[cfg(target_os = "android")]
+            match _event {
+                tauri::RunEvent::ExitRequested { api, .. } => {
+                    let navigating = _app
+                        .try_state::<std::sync::Arc<nav::runtime::NavManager>>()
+                        .is_some_and(|m| m.is_running());
+                    if navigating {
+                        api.prevent_exit();
+                    }
+                }
+                tauri::RunEvent::Resumed => {
+                    if _app.webview_windows().is_empty() {
+                        log::info!("no window after resuming (tauri#15671): building it again");
+                        if let Err(e) = tauri::WebviewWindowBuilder::new(_app, "main", tauri::WebviewUrl::default()).build() {
+                            log::warn!("could not rebuild the window: {e}");
+                        }
+                    }
+                }
+                _ => {}
+            }
+        });
 }

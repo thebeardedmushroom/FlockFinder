@@ -122,6 +122,13 @@ export default function Toolbar() {
           Filters {filterCount > 0 && <span className="badge">{filterCount}</span>}
         </button>
         <button
+          className={`btn ${panel === "directions" ? "active" : ""}`}
+          onClick={pick(() => togglePanel("directions"))}
+          title="Driving directions that avoid mapped cameras"
+        >
+          Directions
+        </button>
+        <button
           className={`btn ${mode === "add" ? "active" : ""}`}
           onClick={pick(() => setMode(mode === "add" ? "view" : "add"))}
           title="Click the map to place a camera you have observed"
@@ -169,7 +176,18 @@ export function ModeBar() {
   const draftPin = useAppStore((s) => s.draftPin);
   const setSubmissionDraft = useAppStore((s) => s.setSubmissionDraft);
   const setPendingRoute = useAppStore((s) => s.setPendingRoute);
+  const picking = useAppStore((s) => s.directions.picking);
 
+  if (mode === "pick") {
+    return (
+      <div className="mode-bar">
+        <span>{picking === "end" ? "Click the map to set the destination." : "Click the map to set the start."}</span>
+        <button className="btn small" onClick={() => setMode("view")}>
+          Cancel
+        </button>
+      </div>
+    );
+  }
   if (mode === "add") {
     return (
       <div className="mode-bar">
