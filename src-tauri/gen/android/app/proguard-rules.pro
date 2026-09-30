@@ -19,3 +19,6 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# Turn-by-turn navigation: the Tauri plugin is loaded by class name and its commands and
+# argument classes are found by reflection.
+-keep class org.flockfinder.app.nav.** { *; }

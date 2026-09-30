@@ -6,6 +6,14 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- Vibrate on camera proximity alerts (normal permission, no prompt) -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Turn-by-turn navigation: a foreground service of type "location" keeps guidance running
+         with the screen off or the app in the background (so no background-location
+         permission), a partial wake lock keeps its clock ticking, and its ongoing notification
+         shows the next turn (asked for when navigation starts; guidance works without it). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -43,6 +51,11 @@
             </intent-filter>
             <!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
         </activity>
+
+        <service
+            android:name=".nav.NavigationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
         <provider
           android:name="androidx.core.content.FileProvider"
