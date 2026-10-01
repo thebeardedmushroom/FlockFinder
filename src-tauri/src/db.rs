@@ -18,6 +18,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (5, include_str!("../migrations/0005_sync_runs.sql")),
     (6, include_str!("../migrations/0006_camera_version.sql")),
     (7, include_str!("../migrations/0007_road_tiles.sql")),
+    (8, include_str!("../migrations/0008_saved_places.sql")),
 ];
 
 /// Cameras absent from a fresh fetch are kept (hollow marker) for this long, then deleted.
@@ -618,13 +619,13 @@ mod tests {
     fn migrations_apply_once() {
         let mut c = open_in_memory().unwrap();
         let first = migrate(&mut c).unwrap();
-        assert_eq!(first, vec![1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(first, vec![1, 2, 3, 4, 5, 6, 7, 8]);
         let second = migrate(&mut c).unwrap();
         assert!(second.is_empty());
         let n: i64 = c
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 7);
+        assert_eq!(n, 8);
     }
 
     #[test]

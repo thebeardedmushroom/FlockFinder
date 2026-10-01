@@ -82,6 +82,13 @@ code {
   height: 100%;
   display: flex;
   flex-direction: column;
+  /* Where the overlays under the toolbar start (status chips, panels, mode bar, alerts). */
+  --top-ui: 60px;
+}
+
+/* The quick-nav bar sits between the toolbar and everything else. */
+.app.has-quick-nav {
+  --top-ui: 100px;
 }
 
 .map-wrap {
@@ -417,7 +424,7 @@ code {
 /* ---------- mode bar ---------- */
 .mode-bar {
   position: absolute;
-  top: 60px;
+  top: var(--top-ui);
   left: 50%;
   transform: translateX(-50%);
   z-index: 5;
@@ -601,7 +608,7 @@ code {
 
 .chips {
   position: absolute;
-  top: 60px;
+  top: var(--top-ui);
   right: 12px;
   z-index: 5;
   display: flex;
@@ -641,7 +648,7 @@ code {
 /* ---------- panels ---------- */
 .panel {
   position: absolute;
-  top: 60px;
+  top: var(--top-ui);
   left: 12px;
   bottom: 44px;
   width: 360px;
@@ -955,6 +962,384 @@ input[type="checkbox"] {
 .directions .choices button:hover,
 .directions .steps button:hover {
   background: var(--accent-dim);
+}
+
+/* ---------- saved places ---------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.ellipsis {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-icon {
+  flex-shrink: 0;
+}
+
+/* Quick-nav bar: one row of chips under the toolbar, scrolling sideways (never wrapping). */
+.quick-nav {
+  position: absolute;
+  top: 54px;
+  left: 12px;
+  right: 12px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.quick-nav-scroll {
+  display: flex;
+  gap: 6px;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  /* Room for the chips' shadows: a scrolling row clips everything outside its box. */
+  padding: 2px 6px 12px;
+  margin: -2px -6px -12px;
+  pointer-events: auto;
+}
+
+.quick-nav-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* The button is the touch target; the pill inside is what shows. */
+.qn-chip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.qn-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  max-width: 180px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 17px;
+  background: var(--bg-elev);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px) saturate(140%);
+  font-size: 13px;
+  transition: border-color 0.12s, box-shadow 0.12s, color 0.12s;
+}
+
+.qn-pill .place-icon {
+  color: var(--accent);
+}
+
+.qn-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qn-chip:hover .qn-pill,
+.qn-chip:focus-visible .qn-pill {
+  border-color: var(--accent);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45), 0 0 8px rgba(0, 229, 255, 0.45);
+}
+
+.qn-chip:focus-visible {
+  outline: none;
+}
+
+/* Home or Work not set yet: tapping opens Saved places. */
+.qn-pill.unset {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.qn-pill.unset .place-icon {
+  color: var(--muted);
+}
+
+.qn-pill.add {
+  color: var(--accent);
+}
+
+.qn-pill.loading {
+  border-color: var(--accent);
+}
+
+.qn-spinner {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid var(--accent-dim);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: qn-spin 0.8s linear infinite;
+}
+
+@keyframes qn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Directions: saved places offered in an empty or matching field. */
+.directions .saved-suggestions button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.directions .saved-suggestions .place-icon {
+  color: var(--accent);
+}
+
+.directions .saved-suggestions .grow {
+  display: flex;
+  flex-direction: column;
+}
+
+.saved-label {
+  font-weight: 600;
+}
+
+/* Saved places screen */
+.saved-places .choices {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 6px;
+  background: rgba(3, 6, 12, 0.7);
+}
+
+.saved-places .choices button {
+  background: none;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  padding: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.saved-places .choices button:hover {
+  background: var(--accent-dim);
+}
+
+.place-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.place-item.drag-active {
+  transition: transform 0.15s ease-out;
+}
+
+.place-item.dragging {
+  position: relative;
+  z-index: 2;
+  transition: none;
+}
+
+.place-item.dragging .place-row {
+  border-color: var(--accent);
+  box-shadow: var(--shadow), var(--accent-glow);
+  background: var(--bg-solid);
+}
+
+.place-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: rgba(3, 6, 12, 0.55);
+}
+
+.place-row.selected {
+  border-color: var(--accent);
+}
+
+.place-row-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.place-row.unset .place-row-icon {
+  color: var(--muted);
+}
+
+.place-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.place-row-label {
+  font-weight: 600;
+}
+
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  width: 28px;
+  margin: -6px 0 -6px -8px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius) 0 0 var(--radius);
+  background: none;
+  color: var(--muted);
+  cursor: grab;
+  /* The finger drags the row, not the page. */
+  touch-action: none;
+}
+
+.drag-handle:hover,
+.drag-handle:focus-visible {
+  color: var(--accent);
+  background: var(--accent-dim);
+  outline: none;
+}
+
+.place-item.dragging .drag-handle {
+  cursor: grabbing;
+}
+
+.place-confirm {
+  margin: 6px 0 0;
+}
+
+.place-confirm .row {
+  margin-top: 8px;
+}
+
+.place-editor {
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: rgba(0, 229, 255, 0.04);
+}
+
+.place-fixed-label {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.place-picked {
+  display: flex;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid rgba(61, 255, 167, 0.45);
+  border-radius: var(--radius);
+  background: rgba(61, 255, 167, 0.06);
+  font-size: 13px;
+}
+
+.place-picked::before {
+  content: "\2713";
+  color: var(--ok);
+}
+
+.input.invalid {
+  border-color: var(--danger);
+}
+
+.field-error {
+  color: #ffb3c1;
+  font-size: 12px;
+}
+
+/* Place detail and the save sheet */
+.save-place-btn .place-icon {
+  color: var(--accent);
+}
+
+.save-place-btn.saved {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.save-place-address {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.save-place-address .place-icon {
+  color: var(--accent);
+  margin-top: 2px;
+}
+
+.save-place-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.btn.save-slot {
+  height: auto;
+  min-height: 44px;
+  padding: 6px 12px;
+  justify-content: flex-start;
+  text-align: left;
+  white-space: normal;
+  box-shadow: none;
+}
+
+.btn.save-slot .place-icon {
+  color: var(--accent);
+}
+
+.btn.save-slot .grow {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* MapLibre positions the marker element with its own transform, so the pin shape is a child. */
+.marker-place {
+  pointer-events: none;
+}
+
+.marker-place-pin {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 4px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: var(--accent);
+  border: 2px solid #041018;
+  box-shadow: 0 0 14px rgba(0, 229, 255, 0.8);
+  pointer-events: none;
 }
 
 .swap-row {
@@ -1363,7 +1748,7 @@ table.report tr:hover td {
 /* ---------- camera proximity alert ---------- */
 .proximity-alert {
   position: absolute;
-  top: 60px;
+  top: var(--top-ui);
   left: 50%;
   transform: translateX(-50%);
   z-index: 9;
@@ -1411,7 +1796,7 @@ table.report tr:hover td {
 
 @media (max-width: 720px) {
   .proximity-alert {
-    top: calc(60px + env(safe-area-inset-top, 0px));
+    top: calc(var(--top-ui) + env(safe-area-inset-top, 0px));
     left: 8px;
     right: 8px;
     transform: none;
@@ -1507,7 +1892,7 @@ table.report tr:hover td {
   }
 
   .chips {
-    top: calc(60px + var(--safe-top));
+    top: calc(var(--top-ui) + var(--safe-top));
     right: calc(8px + var(--safe-right));
   }
 
@@ -1516,7 +1901,7 @@ table.report tr:hover td {
   }
 
   .mode-bar {
-    top: calc(60px + var(--safe-top));
+    top: calc(var(--top-ui) + var(--safe-top));
     left: 8px;
     right: 8px;
     transform: none;
@@ -2158,5 +2543,38 @@ table.report tr:hover td {
 @media (prefers-reduced-motion: reduce) {
   .panel {
     transition: none !important;
+  }
+}
+
+/* Saved places on phones: 48 dp touch targets, below the taller toolbar. */
+@media (max-width: 720px) {
+  .app.has-quick-nav {
+    --top-ui: 106px;
+  }
+
+  .quick-nav {
+    top: calc(52px + var(--safe-top));
+    left: calc(8px + var(--safe-left));
+    right: calc(8px + var(--safe-right));
+  }
+
+  .qn-chip {
+    min-height: 48px;
+  }
+
+  .qn-pill {
+    height: 38px;
+    border-radius: 19px;
+    max-width: 150px;
+    font-size: 14px;
+  }
+
+  .drag-handle {
+    width: 36px;
+  }
+
+  .directions .saved-suggestions button,
+  .saved-places .choices button {
+    min-height: 48px;
   }
 }

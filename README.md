@@ -555,6 +555,25 @@ Tests:
 - `src/__tests__/directions.test.ts` covers formatting and the outcome messages. The theme
   tests check the route colours against every theme.
 
+### Saved places and quick navigation
+
+Home, Work and up to 10 other places (Settings → *Saved places*) show as chips under the
+toolbar. Tapping one plans a route from your current location with the usual settings
+(camera avoidance included) and shows the preview, with *Start navigation* on Android.
+They're also offered in the Directions fields. To save a searched address or a dropped pin,
+use *☆ Save place* in its detail sheet or in the map's right-click / long-press menu.
+
+- Places are stored in SQLite (`saved_places`, migration 0008; `src-tauri/src/places.rs`) on
+  each device and aren't synced. Each keeps the coordinates of the search result or pin it
+  was saved from, so a trip never geocodes the address again.
+- An address must be chosen from the search results to be saved. A dropped pin's address is
+  looked up at street level with Nominatim.
+- Without a location fix within 15 s, Android explains what's missing and links to the
+  setting that fixes it. The desktop opens Directions with the destination filled in and
+  asks for a start. Within 50 m of the place, it says you're already there.
+- `src/__tests__/places.test.ts` and the `places` Rust tests cover ordering, label rules and
+  limits.
+
 ### Turn-by-turn navigation (Android)
 
 **Start avoidance navigation** (or *fastest*) under a planned route guides you along it:

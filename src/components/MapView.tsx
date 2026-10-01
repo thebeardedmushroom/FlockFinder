@@ -484,6 +484,8 @@ export default function MapView() {
   const wifiTimer = useRef<number | null>(null);
   const wifiSeq = useRef(0);
   const markerRef = useRef<maplibregl.Marker | null>(null);
+  /** The pin of a searched place (or dropped pin) whose detail is open. */
+  const placeMarkerRef = useRef<maplibregl.Marker | null>(null);
   /** The theme (or custom URL) the map is on, so the style effect doesn't re-apply it on mount. */
   const styleKeyRef = useRef<string | null>(null);
   /** Overlay colours for the theme the map is on; read whenever our layers are (re)built. */
@@ -922,6 +924,26 @@ export default function MapView() {
       markerRef.current.setLngLat([draftPin.lon, draftPin.lat]);
     }
   }, [mode, draftPin]);
+
+  // The selected place's pin.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const place = selection?.kind === "place" ? selection.place : null;
+    if (!place) {
+      placeMarkerRef.current?.remove();
+      placeMarkerRef.current = null;
+      return;
+    }
+    if (!placeMarkerRef.current) {
+      const el = document.createElement("div");
+      el.className = "marker-place";
+      el.appendChild(document.createElement("div")).className = "marker-place-pin";
+      placeMarkerRef.current = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([place.lon, place.lat]).addTo(map);
+    } else {
+      placeMarkerRef.current.setLngLat([place.lon, place.lat]);
+    }
+  }, [selection]);
 
   // Fly requests.
   useEffect(() => {

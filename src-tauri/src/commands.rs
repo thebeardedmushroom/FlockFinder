@@ -11,6 +11,7 @@ use crate::grid::{cells_for_bbox, BBox};
 use crate::nominatim::{self, GeocodeResult};
 use crate::osm::{self, PendingAuth, UploadResult};
 use crate::overpass;
+use crate::places::{self, PlaceInput, SavedPlace};
 use crate::state::AppState;
 use crate::submissions::{self, Proximity, Submission, SubmissionInput};
 use crate::wifi::{self, WifiSighting};
@@ -389,7 +390,7 @@ pub async fn check_location(state: State<'_, AppState>, lat: f64, lon: f64) -> A
     if !crate::geo_util::valid_coord(lat, lon) {
         return Err(AppError::Invalid("coordinates are outside the valid range".into()));
     }
-    match nominatim::reverse(&state.http, lat, lon).await {
+    match nominatim::reverse(&state.http, lat, lon, 14).await {
         Ok(Some(place)) => Ok(LandCheck {
             checked: true,
             on_land: true,
@@ -407,6 +408,44 @@ pub async fn check_location(state: State<'_, AppState>, lat: f64, lon: f64) -> A
         }),
         Err(e) => Err(e),
     }
+}
+
+/// The street address at a point (a dropped pin being saved as a place), or None when
+/// Nominatim has nothing there.
+#[tauri::command]
+pub async fn reverse_geocode(state: State<'_, AppState>, lat: f64, lon: f64) -> AppResult<Option<String>> {
+    if !crate::geo_util::valid_coord(lat, lon) {
+        return Err(AppError::Invalid("coordinates are outside the valid range".into()));
+    }
+    nominatim::reverse(&state.http, lat, lon, 18).await
+}
+
+// ---------------------------------------------------------------------------
+// Saved places (local only; never synced)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn list_saved_places(state: State<'_, AppState>) -> AppResult<Vec<SavedPlace>> {
+    let conn = state.conn();
+    places::list(&conn)
+}
+
+#[tauri::command]
+pub async fn save_saved_place(state: State<'_, AppState>, input: PlaceInput) -> AppResult<SavedPlace> {
+    let conn = state.conn();
+    places::save(&conn, &input)
+}
+
+#[tauri::command]
+pub async fn delete_saved_place(state: State<'_, AppState>, id: i64) -> AppResult<bool> {
+    let conn = state.conn();
+    places::delete(&conn, id)
+}
+
+#[tauri::command]
+pub async fn reorder_saved_places(state: State<'_, AppState>, ids: Vec<i64>) -> AppResult<Vec<SavedPlace>> {
+    let mut conn = state.conn();
+    places::reorder(&mut conn, &ids)
 }
 
 // ---------------------------------------------------------------------------

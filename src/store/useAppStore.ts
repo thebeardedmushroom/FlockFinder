@@ -16,6 +16,7 @@ import type {
   Camera,
   RoutePlan,
   RouteProgress,
+  SavedPlace,
   Settings,
   Submission,
   SyncStatus,
@@ -36,7 +37,7 @@ export interface DatasetInfo {
   decodeMs: number;
 }
 
-export type Panel = "none" | "filters" | "submissions" | "alerts" | "settings" | "directions";
+export type Panel = "none" | "filters" | "submissions" | "alerts" | "settings" | "directions" | "places";
 /** `pick`: the next map click sets a directions start or destination. */
 export type Mode = "view" | "add" | "draw" | "pick";
 
@@ -51,12 +52,28 @@ export interface DirectionsState {
   busy: boolean;
   progress: RouteProgress | null;
   error: string | null;
+  /** Guidance that isn't an error (e.g. "choose a start point"). */
+  notice: string | null;
 }
+
+/** A searched address or a dropped pin shown on the map (it can be saved as a place). */
+export interface MapPlace {
+  lat: number;
+  lon: number;
+  /** A short name when there is one (a search result's first part); null for a bare pin. */
+  name: string | null;
+  address: string;
+  source: "search" | "pin";
+}
+
+/** Which row of the Saved Places screen to open for editing. */
+export type PlacesFocus = { slot: "home" | "work" } | { slot: "custom"; id: number } | { slot: "new" };
 
 export type Selection =
   | { kind: "camera"; camera: Camera }
   | { kind: "submission"; submission: Submission }
   | { kind: "wifi"; sighting: WifiSighting }
+  | { kind: "place"; place: MapPlace }
   | null;
 
 export interface Toast {
@@ -144,6 +161,12 @@ interface AppStore {
   /** The proximity alert currently shown in the banner. */
   proximityAlert: ProximityAlert | null;
   directions: DirectionsState;
+  /** Saved places (Home, Work, custom), loaded at startup; null until then. */
+  savedPlaces: SavedPlace[] | null;
+  /** The Saved Places screen opens on this row's editor. */
+  placesFocus: PlacesFocus | null;
+  /** The "Save place" sheet is open for this point. */
+  savePlaceTarget: MapPlace | null;
 
   /** The running navigation session (from Rust), or null. */
   nav: NavSession | null;
@@ -199,6 +222,10 @@ interface AppStore {
   /** Next map click sets this endpoint. */
   startPick(which: "start" | "end"): void;
   clearDirections(): void;
+  setSavedPlaces(places: SavedPlace[]): void;
+  /** Open the Saved Places screen, optionally on one row's editor. */
+  openPlaces(focus?: PlacesFocus | null): void;
+  setSavePlaceTarget(p: MapPlace | null): void;
   setNav(nav: NavSession | null): void;
   setNavRoute(r: NavRouteView | null): void;
   setNavResume(t: ActiveTrip | null): void;
@@ -244,7 +271,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   proximity: loadProximitySettings(),
   mapTheme: loadThemeChoice(),
   proximityAlert: null,
-  directions: { start: null, end: null, picking: null, plan: null, selected: "avoid", busy: false, progress: null, error: null },
+  directions: { start: null, end: null, picking: null, plan: null, selected: "avoid", busy: false, progress: null, error: null, notice: null },
+  savedPlaces: null,
+  placesFocus: null,
+  savePlaceTarget: null,
   nav: null,
   navRoute: null,
   navResume: null,
@@ -313,7 +343,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   setProximityAlert: (proximityAlert) => set({ proximityAlert }),
   setDirections: (d) => set({ directions: { ...get().directions, ...d } }),
-  setEndpoint: (which, e) => set({ directions: { ...get().directions, [which]: e, error: null } }),
+  setEndpoint: (which, e) => set({ directions: { ...get().directions, [which]: e, error: null, notice: null } }),
   startPick: (which) =>
     set({
       mode: "pick",
@@ -324,9 +354,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }),
   clearDirections: () =>
     set({
-      directions: { start: null, end: null, picking: null, plan: null, selected: "avoid", busy: false, progress: null, error: null },
+      directions: { start: null, end: null, picking: null, plan: null, selected: "avoid", busy: false, progress: null, error: null, notice: null },
       mode: get().mode === "pick" ? "view" : get().mode,
     }),
+  setSavedPlaces: (savedPlaces) => set({ savedPlaces }),
+  openPlaces: (focus = null) => set({ panel: "places", placesFocus: focus, contextMenu: null }),
+  setSavePlaceTarget: (savePlaceTarget) => set({ savePlaceTarget, contextMenu: null }),
   setNav: (nav) => set(nav ? { nav } : { nav: null, navRoute: null, navFollow: true }),
   setNavRoute: (navRoute) => set({ navRoute }),
   setNavResume: (navResume) => set({ navResume }),

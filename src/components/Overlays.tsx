@@ -3,6 +3,7 @@ import { copyText } from "../lib/actions";
 import { coordLabel } from "../lib/directions";
 import { formatCoords } from "../lib/geo";
 import { api } from "../lib/ipc";
+import { savedPlaceAt } from "../lib/places";
 import { useAppStore } from "../store/useAppStore";
 
 export function StatusChips() {
@@ -77,6 +78,7 @@ export function ContextMenu() {
   const setDraftPin = useAppStore((s) => s.setDraftPin);
   const setEndpoint = useAppStore((s) => s.setEndpoint);
   const setPanel = useAppStore((s) => s.setPanel);
+  const savedPlaces = useAppStore((s) => s.savedPlaces);
 
   useEffect(() => {
     if (!menu) return;
@@ -88,7 +90,8 @@ export function ContextMenu() {
   if (!menu) return null;
   // Positioned inside the map container; flip so the menu never runs off-screen.
   const MENU_W = 220;
-  const MENU_H = 240;
+  const MENU_H = 270;
+  const saved = savedPlaceAt(savedPlaces ?? [], menu.lat, menu.lon);
   const left = Math.max(4, Math.min(menu.x + 4, window.innerWidth - MENU_W - 4));
   const top = menu.y + MENU_H + 40 > window.innerHeight ? Math.max(4, menu.y - MENU_H) : menu.y + 4;
   return (
@@ -105,6 +108,15 @@ export function ContextMenu() {
           {which === "start" ? "Directions from here" : "Directions to here"}
         </button>
       ))}
+      <button
+        onClick={() => {
+          const s = useAppStore.getState();
+          if (saved) s.openPlaces(saved.kind === "custom" ? { slot: "custom", id: saved.id } : { slot: saved.kind });
+          else s.setSavePlaceTarget({ lat: menu.lat, lon: menu.lon, name: null, address: coordLabel(menu.lat, menu.lon), source: "pin" });
+        }}
+      >
+        {saved ? `★ Edit saved place (${saved.label})` : "☆ Save place…"}
+      </button>
       <button onClick={() => setPendingWatchArea({ lat: menu.lat, lon: menu.lon })}>
         Create watch area here
       </button>

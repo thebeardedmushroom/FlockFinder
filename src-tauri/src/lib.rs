@@ -13,6 +13,7 @@ mod nav;
 mod nominatim;
 mod osm;
 pub mod overpass;
+mod places;
 mod points;
 mod roadnet;
 mod routing;
@@ -172,6 +173,7 @@ pub fn run() {
             commands::geocode,
             commands::plan_route,
             commands::check_location,
+            commands::reverse_geocode,
             commands::list_submissions,
             commands::create_submission,
             commands::update_submission,
@@ -209,6 +211,10 @@ pub fn run() {
             commands::wifi_clear,
             commands::get_wifi_sightings,
             commands::wifi_oui_list,
+            commands::list_saved_places,
+            commands::save_saved_place,
+            commands::delete_saved_place,
+            commands::reorder_saved_places,
             nav::commands::nav_start,
             nav::commands::nav_stop,
             nav::commands::nav_status,
