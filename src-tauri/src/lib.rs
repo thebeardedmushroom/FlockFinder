@@ -78,6 +78,11 @@ fn allow_geolocation_requests(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Android builds rustls without a default crypto provider (see Cargo.toml). Our own client
+    // brings its TLS config, but in dev builds Tauri proxies the dev server with a plain reqwest
+    // client, which panics at startup unless a process default is installed.
+    #[cfg(target_os = "android")]
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let builder = tauri::Builder::default();
     // Desktop only, and must be registered first: a second launch (e.g. from a deep link)
     // forwards its arguments to this instance instead of opening another window. Android
