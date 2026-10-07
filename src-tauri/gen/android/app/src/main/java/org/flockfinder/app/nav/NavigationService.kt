@@ -37,6 +37,10 @@ import java.util.Date
  * shows the current maneuver in an ongoing notification (tap: back to the app; "End
  * navigation": stop). It owns no guidance logic of its own.
  *
+ * The Activity (and its WebView) may be destroyed while this runs, so the session's calls
+ * that keep guidance going (the notification, speech, stopping) come straight from Rust to
+ * the `bridge*` functions below, not through the Tauri plugin, which needs an Activity.
+ *
  * If the system kills the process the service is not restarted (START_NOT_STICKY): the app
  * offers to resume the trip when next opened instead of silently carrying on.
  */
@@ -48,6 +52,8 @@ class NavigationService : Service() {
   private var receiver: BroadcastReceiver? = null
   private var title = "Navigating"
   private var stopping = false
+  /** A session is running (started and not yet stopping). */
+  private var active = false
   /** Counts sessions, so a stop that finishes late never ends a newer one. */
   private var generation = 0
 
@@ -61,11 +67,21 @@ class NavigationService : Service() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_END) {
-      android.util.Log.i("FlockFinderNav", "End navigation tapped in the notification")
-      send(JSObject().put("type", "end"))
+      android.util.Log.i("FlockFinderNav", "End navigation tapped in the notification (active: $active)")
+      if (active) {
+        // Tell the session (it cleans up its state and tells the screen), and stop here at
+        // once as well, so ending never depends on the rest of the app answering.
+        send(JSObject().put("type", "end"))
+        sink = null
+        finish(false)
+      } else if (!stopping) {
+        // A late tap (the notification was already going) started this service: nothing to end.
+        stopSelf(startId)
+      }
       return START_NOT_STICKY
     }
     stopping = false
+    active = true
     generation++
     val simulated = intent?.getBooleanExtra(EXTRA_SIMULATED, false) ?: false
     title = intent?.getStringExtra(EXTRA_TITLE) ?: "Navigating"
@@ -151,11 +167,13 @@ class NavigationService : Service() {
   }
 
   private fun build(icon: String, title: String, text: String, etaMs: Long?) = run {
-    val open = PendingIntent.getActivity(
-      this, 0,
-      Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
-      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
+    // The same intent as the launcher icon: brings the app's task back as it is (the
+    // navigation screen), or recreates its activity if Android destroyed it.
+    val launch = Intent(this, MainActivity::class.java)
+      .setAction(Intent.ACTION_MAIN)
+      .addCategory(Intent.CATEGORY_LAUNCHER)
+      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    val open = PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     val end = PendingIntent.getService(
       this, 1,
       Intent(this, NavigationService::class.java).setAction(ACTION_END),
@@ -187,7 +205,9 @@ class NavigationService : Service() {
   }
 
   private fun finish(afterSpeech: Boolean) {
+    if (stopping) return
     stopping = true
+    active = false
     location?.stop()
     location = null
     receiver?.let { unregisterReceiver(it) }
@@ -200,6 +220,7 @@ class NavigationService : Service() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID)
         stopSelf()
       }
     }
@@ -225,6 +246,8 @@ class NavigationService : Service() {
     @Volatile private var instance: NavigationService? = null
     /** Where events for the Rust session go (the running session's channel). */
     @Volatile private var sink: Channel? = null
+    /** For stopping the service when it has no instance yet (outlives any Activity). */
+    @Volatile private var appContext: Context? = null
 
     private fun send(event: JSObject) {
       try {
@@ -236,6 +259,7 @@ class NavigationService : Service() {
 
     fun start(context: Context, events: Channel, simulated: Boolean, title: String) {
       sink = events
+      appContext = context.applicationContext
       val intent = Intent(context, NavigationService::class.java)
         .putExtra(EXTRA_SIMULATED, simulated)
         .putExtra(EXTRA_TITLE, title)
@@ -248,7 +272,8 @@ class NavigationService : Service() {
     }
 
     fun speak(text: String, camera: Boolean) {
-      instance?.voice?.speak(text, camera)
+      val s = instance ?: return
+      s.main.post { s.voice?.speak(text, camera) }
     }
 
     fun stop(context: Context, afterSpeech: Boolean) {
@@ -258,6 +283,28 @@ class NavigationService : Service() {
         s.main.post { s.finish(afterSpeech) }
       } else {
         context.stopService(Intent(context, NavigationService::class.java))
+      }
+    }
+
+    // Called from Rust over JNI (src-tauri/src/nav/platform.rs), on its own threads, with or
+    // without an Activity.
+
+    /** [update], with `etaMs` < 0 for no ETA. */
+    @JvmStatic
+    fun bridgeUpdate(icon: String, title: String, text: String, etaMs: Long) =
+      update(icon, title, text, if (etaMs < 0) null else etaMs)
+
+    @JvmStatic
+    fun bridgeSpeak(text: String, camera: Boolean) = speak(text, camera)
+
+    @JvmStatic
+    fun bridgeStop(afterSpeech: Boolean) {
+      val context = appContext
+      if (context != null) {
+        stop(context, afterSpeech)
+      } else {
+        sink = null
+        instance?.let { s -> s.main.post { s.finish(afterSpeech) } }
       }
     }
   }

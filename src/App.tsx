@@ -40,6 +40,11 @@ export default function App() {
       return;
     }
     const store = useAppStore.getState();
+    // A session still running (the app was reopened), a trip to offer resuming, or why the
+    // last one ended. Asked before anything else (the camera dataset is a large transfer), so a
+    // running session's screen comes back without waiting.
+    const navStatus = navApi.status();
+    navStatus.catch(() => {}); // (handled below)
     // Cameras come from the local store; loading them does not wait for anything else.
     if (!booted) {
       booted = true;
@@ -59,13 +64,8 @@ export default function App() {
       } catch (e) {
         toastError(e, "Startup failed");
       }
-      await reloadSubmissions();
-      await reloadPlaces();
-      await reloadAlertState();
-      // A session still running (the app was reopened), a trip to offer resuming, or why the
-      // last one ended.
       try {
-        const nav = await navApi.status();
+        const nav = await navStatus;
         if (nav.session) {
           store.setNav(nav.session);
           await refreshNavRoute();
@@ -76,6 +76,9 @@ export default function App() {
       } catch (e) {
         toastError(e, "Could not read the navigation state");
       }
+      await reloadSubmissions();
+      await reloadPlaces();
+      await reloadAlertState();
     })();
 
     const unlisteners: Promise<() => void>[] = [
