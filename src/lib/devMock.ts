@@ -3,10 +3,13 @@
 // Cameras come from `dev-data/overpass_global.json` when present (a saved worldwide sync
 // response; gitignored, ODbL data), otherwise from the bundled Overpass fixture. Query
 // options: `data=fixture` forces the fixture; `sync=never|failed|syncing` starts in that
-// sync state with an empty store. Never included in production builds.
+// sync state with an empty store; `route=straight` answers directions with a straight-line
+// plan (otherwise they fail as offline). Saved places live in memory; a geocode query
+// containing "offline" fails as offline. Never included in production builds.
 import { encodePoints } from "./cameraData";
 import { classify } from "./classify";
 import { haversineM } from "./geo";
+import { customLimitReached, labelError } from "./places";
 import type {
   AlertEvent,
   AlertState,
@@ -22,6 +25,7 @@ import type {
   WifiSighting,
 } from "./types";
 import { cameraKey } from "./types";
+import type { PlaceInput, RoutePlan, SavedPlace } from "./types";
 
 type Args = Record<string, unknown>;
 
@@ -241,6 +245,22 @@ export function installDevMock(): void {
     return tags;
   };
 
+  let savedPlaces: SavedPlace[] = [];
+  /** Straight-line stand-in for a route plan (`route=straight`). */
+  const straightPlan = (a: { lat: number; lon: number }, b: { lat: number; lon: number }): RoutePlan => {
+    const d = haversineM(a.lat, a.lon, b.lat, b.lon);
+    const bbox = { south: Math.min(a.lat, b.lat), west: Math.min(a.lon, b.lon), north: Math.max(a.lat, b.lat), east: Math.max(a.lon, b.lon) };
+    const maneuver = (instruction: string, kind: number, at: { lat: number; lon: number }, distance_m: number, shape_index: number) => ({
+      instruction, kind, distance_m, duration_s: distance_m / 13, lat: at.lat, lon: at.lon, shape_index, street_names: [], begin_street_names: [], highway: false,
+      verbal_alert: null, verbal_pre: null, verbal_post: null, bearing_before: null, bearing_after: null, roundabout_exit_count: null, exit_number: null,
+    });
+    const route = { shape: [[a.lat, a.lon], [b.lat, b.lon]] as [number, number][], distance_m: d, duration_s: d / 13, cameras: [], bbox,
+      maneuvers: [maneuver("Drive to your destination (mock route).", 1, a, d, 0), maneuver("You have arrived.", 4, b, 0, 1)] };
+    return { fastest: route, avoid: route, same_route: true, outcome: "clear", long_detour: false, requests: 1, excluded: 0, warning: null, server: "mock",
+      road_check: { status: "not_needed" }, avoid_from_road_map: false, limits: { exclusion_cap: false, request_budget: false }, road_map: null };
+  };
+  const placeOrder = (x: SavedPlace) => (x.kind === "home" ? 0 : x.kind === "work" ? 1 : 2);
+
   const handlers: Record<string, (a: Args) => Promise<unknown>> = {
     "plugin:event|listen": async (a) => {
       const event = String(a.event);
@@ -313,10 +333,57 @@ export function installDevMock(): void {
     load_fixture: async () => ({ stats: { requests: 0, cells_fetched: 30, elements: (await loadCameras()).length, skipped: 0 }, bbox: FIXTURE_BBOX }),
     geocode: async (a) => {
       const q = String(a.query).toLowerCase();
+      if (q.includes("offline")) return fail("offline", "network unavailable: mock offline");
+      if (q.includes("larimer")) return [{ display_name: "1600, Larimer Street, Denver, Colorado, 80202, United States", lat: 39.7490, lon: -104.9963, bbox: null, osm_type: "node", osm_id: 1 }];
+      if (q.includes("main")) return [
+        { display_name: "Main Street, Littleton, Colorado, 80120, United States", lat: 39.6133, lon: -105.0166, bbox: null, osm_type: "way", osm_id: 2 },
+        { display_name: "Main Street, Longmont, Colorado, 80501, United States", lat: 40.1672, lon: -105.1019, bbox: null, osm_type: "way", osm_id: 3 },
+      ];
       if (q.includes("denver")) return [{ display_name: "Denver, Colorado, United States", lat: 39.7392, lon: -104.9849, bbox: { south: 39.614, west: -105.11, north: 39.914, east: -104.6 }, osm_type: "relation", osm_id: 1411339 }];
       return [];
     },
-    plan_route: async () => fail("offline", "network unavailable: directions need the Rust backend (not available in the browser mock)"),
+    plan_route: async (a) => {
+      if (params.get("route") !== "straight") return fail("offline", "network unavailable: directions need the Rust backend (not available in the browser mock)");
+      await new Promise((r) => setTimeout(r, 400));
+      return straightPlan(a.start as { lat: number; lon: number }, a.end as { lat: number; lon: number });
+    },
+    reverse_geocode: async () => "1550, Wynkoop Street, LoDo, Denver, Colorado, 80202, United States",
+    list_saved_places: async () => [...savedPlaces].sort((x, y) => placeOrder(x) - placeOrder(y) || x.sort_order - y.sort_order),
+    save_saved_place: async (a) => {
+      const i = a.input as PlaceInput;
+      if (i.kind !== "custom") {
+        const label = i.kind === "home" ? "Home" : "Work";
+        const existing = savedPlaces.find((x) => x.kind === i.kind);
+        if (existing) return Object.assign(existing, { address: i.address, lat: i.lat, lon: i.lon, created_at: now() });
+        const p: SavedPlace = { id: nextId++, kind: i.kind, label, address: i.address, lat: i.lat, lon: i.lon, created_at: now(), sort_order: 0 };
+        savedPlaces.push(p);
+        return p;
+      }
+      const problem = labelError(savedPlaces, i.label, i.id ?? null);
+      if (problem) return fail("invalid", `invalid input: ${problem}`);
+      if (i.id) {
+        const p = savedPlaces.find((x) => x.id === i.id);
+        if (!p) return fail("invalid", "invalid input: saved place not found");
+        return Object.assign(p, { label: i.label.trim(), address: i.address, lat: i.lat, lon: i.lon });
+      }
+      if (customLimitReached(savedPlaces)) return fail("invalid", "invalid input: you can save up to 10 places besides Home and Work; remove one first");
+      const order = Math.max(-1, ...savedPlaces.filter((x) => x.kind === "custom").map((x) => x.sort_order)) + 1;
+      const p: SavedPlace = { id: nextId++, kind: "custom", label: i.label.trim(), address: i.address, lat: i.lat, lon: i.lon, created_at: now(), sort_order: order };
+      savedPlaces.push(p);
+      return p;
+    },
+    delete_saved_place: async (a) => {
+      const before = savedPlaces.length;
+      savedPlaces = savedPlaces.filter((x) => x.id !== a.id);
+      return savedPlaces.length < before;
+    },
+    reorder_saved_places: async (a) => {
+      (a.ids as number[]).forEach((id, i) => {
+        const p = savedPlaces.find((x) => x.id === id);
+        if (p) p.sort_order = i;
+      });
+      return [...savedPlaces].sort((x, y) => placeOrder(x) - placeOrder(y) || x.sort_order - y.sort_order);
+    },
     // Navigation runs in Rust; the mock only says nothing is running.
     nav_status: async () => ({ session: null, resume: null, ended: null }),
     nav_readiness: async () => ({ platform: "desktop", device_location: false, precise: false, approximate: false, denied_permanently: false, location_enabled: true, notifications: true, play_services: false, power_save_gps_off: false }),

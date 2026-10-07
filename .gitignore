@@ -7,3 +7,6 @@ src-tauri/gen/schemas/
 .DS_Store
 dev-data/
 *.apk
+
+# Machine-specific cargo settings/cache (NDK paths); never commit.
+src-tauri/.cargo/

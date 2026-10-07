@@ -121,6 +121,34 @@ export interface GeocodeResult {
 }
 
 // ---------------------------------------------------------------------------
+// Saved places (src-tauri/src/places.rs)
+// ---------------------------------------------------------------------------
+
+export type PlaceKind = "home" | "work" | "custom";
+
+export interface SavedPlace {
+  id: number;
+  kind: PlaceKind;
+  label: string;
+  /** The address it was saved from, for display; trips use `lat`/`lon`. */
+  address: string;
+  lat: number;
+  lon: number;
+  created_at: number;
+  sort_order: number;
+}
+
+/** Home and Work replace their slot (fixed labels); a custom place is updated when `id` is set. */
+export interface PlaceInput {
+  id?: number | null;
+  kind: PlaceKind;
+  label: string;
+  address: string;
+  lat: number;
+  lon: number;
+}
+
+// ---------------------------------------------------------------------------
 // Directions (src-tauri/src/routing.rs)
 // ---------------------------------------------------------------------------
 

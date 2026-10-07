@@ -15,6 +15,10 @@ export default defineConfig({
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: 14211 } : undefined,
     watch: { ignored: ["**/src-tauri/**"] },
+    // Transform the app (and optimize its dependencies) at startup. On Android dev builds Tauri
+    // proxies the first page load through Rust, and a cold Vite answers too slowly: the app
+    // came up blank until reloaded.
+    warmup: { clientFiles: ["./src/main.tsx"] },
   },
   build: {
     target: "es2022",

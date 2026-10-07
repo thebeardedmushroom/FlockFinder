@@ -13,6 +13,7 @@ mod nav;
 mod nominatim;
 mod osm;
 pub mod overpass;
+mod places;
 mod points;
 mod roadnet;
 mod routing;
@@ -77,6 +78,11 @@ fn allow_geolocation_requests(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Android builds rustls without a default crypto provider (see Cargo.toml). Our own client
+    // brings its TLS config, but in dev builds Tauri proxies the dev server with a plain reqwest
+    // client, which panics at startup unless a process default is installed.
+    #[cfg(target_os = "android")]
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let builder = tauri::Builder::default();
     // Desktop only, and must be registered first: a second launch (e.g. from a deep link)
     // forwards its arguments to this instance instead of opening another window. Android
@@ -172,6 +178,7 @@ pub fn run() {
             commands::geocode,
             commands::plan_route,
             commands::check_location,
+            commands::reverse_geocode,
             commands::list_submissions,
             commands::create_submission,
             commands::update_submission,
@@ -209,6 +216,10 @@ pub fn run() {
             commands::wifi_clear,
             commands::get_wifi_sightings,
             commands::wifi_oui_list,
+            commands::list_saved_places,
+            commands::save_saved_place,
+            commands::delete_saved_place,
+            commands::reorder_saved_places,
             nav::commands::nav_start,
             nav::commands::nav_stop,
             nav::commands::nav_status,

@@ -47,6 +47,15 @@ export default function SettingsPanel() {
   const sync = useAppStore((s) => s.sync);
   const themeChoice = useThemeChoice();
   const setMapTheme = useAppStore((s) => s.setMapTheme);
+  const openPlaces = useAppStore((s) => s.openPlaces);
+  const savedPlaces = useAppStore((s) => s.savedPlaces);
+  const savedSummary = (() => {
+    const list = savedPlaces ?? [];
+    const set = [list.some((p) => p.kind === "home") && "Home", list.some((p) => p.kind === "work") && "Work"].filter(Boolean).join(" and ");
+    const others = list.filter((p) => p.kind === "custom").length;
+    if (!set && others === 0) return "None saved yet.";
+    return [set && `${set} set`, others > 0 && `${others} other place${others === 1 ? "" : "s"}`].filter(Boolean).join(", ") + ".";
+  })();
   const [form, setForm] = useState<Settings | null>(settings);
   const [saving, setSaving] = useState(false);
   const [auth, setAuth] = useState<OsmAuthStatus | null>(null);
@@ -355,6 +364,22 @@ export default function SettingsPanel() {
             Your position is checked on this device against cameras of the categories shown in Filters;
             it is never stored or uploaded. Changes apply immediately.
           </div>
+        </div>
+
+        <div className="section">
+          <h4>Saved places</h4>
+          <div className="row between">
+            <span className="muted small">
+              {savedSummary}
+            </span>
+            <button className="btn small" onClick={() => openPlaces()}>
+              Saved places…
+            </button>
+          </div>
+          <span className="muted small">
+            Home, Work and up to 10 other places, for one-tap directions from the bar at the top of the map. Kept on
+            this device only.
+          </span>
         </div>
 
         <div className="section">

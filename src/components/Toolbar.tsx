@@ -40,6 +40,9 @@ function SearchBox() {
     setResults(null);
     if (r.bbox) flyTo({ bbox: r.bbox });
     else flyTo({ lat: r.lat, lon: r.lon, zoom: 14 });
+    // The place's detail (pinned on the map) can save it or route to it.
+    const name = r.display_name.split(",")[0]?.trim() || null;
+    useAppStore.getState().select({ kind: "place", place: { lat: r.lat, lon: r.lon, name, address: r.display_name, source: "search" } });
   };
 
   return (

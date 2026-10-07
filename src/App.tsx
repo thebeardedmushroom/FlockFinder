@@ -7,6 +7,9 @@ import MapView from "./components/MapView";
 import NavigationView, { NavResumeDialog, refreshNavRoute } from "./components/NavigationView";
 import OsmUploadDialog from "./components/OsmUploadDialog";
 import ProximityAlerts from "./components/ProximityAlerts";
+import QuickNavBar from "./components/QuickNavBar";
+import SavedPlacesPanel from "./components/SavedPlacesPanel";
+import SavePlaceDialog from "./components/SavePlaceDialog";
 import { EmptyState, Hud, Legend } from "./components/MapHud";
 import { ContextMenu, FirstRunDialog, Footer, StatusChips, Toasts } from "./components/Overlays";
 import RouteDialog from "./components/RouteDialog";
@@ -15,7 +18,7 @@ import SubmissionForm from "./components/SubmissionForm";
 import SubmissionsPanel from "./components/SubmissionsPanel";
 import Toolbar, { ModeBar } from "./components/Toolbar";
 import WatchAreaDialog from "./components/WatchAreaDialog";
-import { reloadAlertState, reloadSubmissions, showCameraKeysOnMap, toastError } from "./lib/actions";
+import { reloadAlertState, reloadPlaces, reloadSubmissions, showCameraKeysOnMap, toastError } from "./lib/actions";
 import { loadDataset } from "./lib/dataset";
 import { api, inTauri, onAlertsRefreshed, onCamerasChanged, onOsmAuth, onSyncStatus } from "./lib/ipc";
 import { navApi, navCovered, onNavEnded, onNavRoute, onNavState } from "./lib/nav";
@@ -28,6 +31,7 @@ export default function App() {
   const panel = useAppStore((s) => s.panel);
   const info = useAppStore((s) => s.info);
   const navigating = useAppStore((s) => s.nav !== null);
+  const quickNav = useAppStore((s) => s.savedPlaces !== null);
   const submissionKey = useAppStore((s) => s.submissionDraft?.id ?? (s.submissionDraft ? "new" : "none"));
 
   useEffect(() => {
@@ -56,6 +60,7 @@ export default function App() {
         toastError(e, "Startup failed");
       }
       await reloadSubmissions();
+      await reloadPlaces();
       await reloadAlertState();
       // A session still running (the app was reopened), a trip to offer resuming, or why the
       // last one ended.
@@ -110,6 +115,7 @@ export default function App() {
       if (e.key !== "Escape") return;
       const s = useAppStore.getState();
       if (s.contextMenu) s.setContextMenu(null);
+      else if (s.savePlaceTarget) s.setSavePlaceTarget(null);
       else if (s.mode !== "view") s.setMode("view");
       else if (s.selection) s.select(null);
       else if (s.panel !== "none") s.setPanel("none");
@@ -133,10 +139,11 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${quickNav ? "has-quick-nav" : ""}`}>
       <div className="map-wrap">
         <MapView />
         <Toolbar />
+        <QuickNavBar />
         <ModeBar />
         <ProximityAlerts />
         <EmptyState />
@@ -150,12 +157,14 @@ export default function App() {
         {panel === "alerts" && <AlertsPanel />}
         {panel === "settings" && <SettingsPanel />}
         {panel === "directions" && <DirectionsPanel />}
+        {panel === "places" && <SavedPlacesPanel />}
         <DetailPanel />
         <ContextMenu />
         <SubmissionForm key={submissionKey} />
         <WatchAreaDialog />
         <RouteDialog />
         <OsmUploadDialog />
+        <SavePlaceDialog />
         <Toasts />
         {info && <FirstRunDialog />}
         <NavResumeDialog />

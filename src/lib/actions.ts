@@ -24,6 +24,14 @@ export async function reloadSubmissions(): Promise<void> {
   }
 }
 
+export async function reloadPlaces(): Promise<void> {
+  try {
+    useAppStore.getState().setSavedPlaces(await api.listSavedPlaces());
+  } catch (e) {
+    toastError(e, "Could not load saved places");
+  }
+}
+
 export async function reloadAlertState(): Promise<void> {
   try {
     useAppStore.getState().setAlertState(await api.getAlertState());

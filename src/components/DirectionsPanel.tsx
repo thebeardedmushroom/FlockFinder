@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toastError } from "../lib/actions";
 import {
   cameraCount,
@@ -16,23 +16,15 @@ import {
 } from "../lib/directions";
 import { api, onRouteProgress } from "../lib/ipc";
 import { TYPING_LOCK_MPS, type Blocker } from "../lib/nav";
+import { placeSuggestions } from "../lib/places";
+import { cancelPlans, DEFAULT_SERVER, planDirections, REVEAL_ROUTE_EVENT, serverName } from "../lib/quickNav";
 import { startNavigation, StartProblemCallout } from "./NavigationView";
-import type { GeocodeResult, PlannedCamera, RoutePlan } from "../lib/types";
+import PlaceIcon from "./PlaceIcon";
+import type { GeocodeResult, PlannedCamera, RoutePlan, SavedPlace } from "../lib/types";
 import { useAppStore } from "../store/useAppStore";
 import { useSheet } from "./useSheet";
 
 type Which = "start" | "end";
-
-const DEFAULT_SERVER = "valhalla1.openstreetmap.de";
-
-/** Host of the configured routing server, for messages. */
-function serverName(endpoint: string | undefined): string {
-  try {
-    return endpoint ? new URL(endpoint).host : DEFAULT_SERVER;
-  } catch {
-    return endpoint || DEFAULT_SERVER;
-  }
-}
 
 /** "39.74, -104.99" typed into a field needs no geocoding. */
 function parseCoords(text: string): Endpoint | null {
@@ -43,9 +35,6 @@ function parseCoords(text: string): Endpoint | null {
   if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
   return { lat, lon, label: coordLabel(lat, lon) };
 }
-
-/** Plans in flight; only the latest one's answer is shown. */
-let planSeq = 0;
 
 async function selectPlannedCamera(c: PlannedCamera) {
   const store = useAppStore.getState();
@@ -91,7 +80,8 @@ export default function DirectionsPanel() {
   const routingEndpoint = useAppStore((s) => s.settings?.routing_endpoint);
   const server = serverName(routingEndpoint);
   const miles = usesMiles();
-  const { start, end, plan, selected, busy, progress, error } = directions;
+  const { start, end, plan, selected, busy, progress, error, notice } = directions;
+  const savedPlaces = useAppStore((s) => s.savedPlaces);
   const debugBuild = useAppStore((s) => s.info?.debug_build ?? false);
   // No typing while driving: above 5 mph the address fields lock (the map and "Me" still work).
   const speed = useAppStore((s) => s.userPosition?.speed ?? 0);
@@ -104,6 +94,19 @@ export default function DirectionsPanel() {
   const [choices, setChoices] = useState<Record<Which, GeocodeResult[] | null>>({ start: null, end: null });
   const [searching, setSearching] = useState<Which | null>(null);
   const [locating, setLocating] = useState(false);
+  /** The field showing saved-place suggestions (while it has focus). */
+  const [suggestFor, setSuggestFor] = useState<Which | null>(null);
+  const startInput = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const reveal = () => window.setTimeout(() => resultsRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }), 50);
+    window.addEventListener(REVEAL_ROUTE_EVENT, reveal);
+    return () => window.removeEventListener(REVEAL_ROUTE_EVENT, reveal);
+  }, []);
+  // "Choose a start point": put the cursor there.
+  useEffect(() => {
+    if (notice && !start) startInput.current?.focus();
+  }, [notice, start]);
   useEffect(() => setText((t) => ({ ...t, start: start?.label ?? "" })), [start]);
   useEffect(() => setText((t) => ({ ...t, end: end?.label ?? "" })), [end]);
 
@@ -128,6 +131,13 @@ export default function DirectionsPanel() {
     if (typed) {
       setEndpoint(which, typed);
       return typed;
+    }
+    // A saved place's exact name uses its stored coordinates.
+    const saved = (savedPlaces ?? []).find((p) => p.label.toLowerCase() === q.toLowerCase());
+    if (saved) {
+      const e = { lat: saved.lat, lon: saved.lon, label: saved.label };
+      setEndpoint(which, e);
+      return e;
     }
     setSearching(which);
     try {
@@ -163,28 +173,14 @@ export default function DirectionsPanel() {
     if (!s) return;
     const e = await resolve("end");
     if (!e) return;
-    const seq = ++planSeq;
-    setDirections({ busy: true, error: null, progress: null });
-    try {
-      const result = await api.planRoute({ lat: s.lat, lon: s.lon }, { lat: e.lat, lon: e.lon });
-      if (seq !== planSeq) return;
-      setDirections({ plan: result, selected: "avoid", busy: false, progress: null });
-      const b = [result.fastest.bbox, result.avoid.bbox];
-      flyTo({
-        bbox: {
-          south: Math.min(b[0].south, b[1].south),
-          west: Math.min(b[0].west, b[1].west),
-          north: Math.max(b[0].north, b[1].north),
-          east: Math.max(b[0].east, b[1].east),
-        },
-      });
-    } catch (err) {
-      if (seq !== planSeq) return;
-      // The map keeps whatever route it was showing.
-      // Named from the settings now, not at render time (they may have just changed).
-      const host = serverName(useAppStore.getState().settings?.routing_endpoint);
-      setDirections({ busy: false, progress: null, error: routingErrorMessage(err, host) });
-    }
+    await planDirections(s, e);
+  };
+
+  /** A saved place fills the field with its label and its stored coordinates (no geocoding). */
+  const chooseSaved = (which: Which, p: SavedPlace) => {
+    setSuggestFor(null);
+    setChoices((c) => ({ ...c, [which]: null }));
+    setEndpoint(which, { lat: p.lat, lon: p.lon, label: p.label });
   };
 
   const useMyLocation = () => {
@@ -222,14 +218,52 @@ export default function DirectionsPanel() {
     setChoices({ start: choices.end, end: choices.start });
   };
 
+  /** Saved places for a field: all of them while it's empty, else those whose label matches the text. */
+  const savedMatches = (which: Which): SavedPlace[] => {
+    const current = endpointOf(which);
+    if (current && text[which].trim() === current.label) return [];
+    return placeSuggestions(savedPlaces ?? [], text[which]);
+  };
+
+  // Shown while the field has focus, and next to the search matches; above both.
+  const suggestions = (which: Which) => {
+    if (suggestFor !== which && !choices[which]) return null;
+    const matches = savedMatches(which);
+    if (matches.length === 0) return null;
+    return (
+      <div className="choices saved-suggestions" role="listbox" aria-label="Saved places">
+        {matches.map((p) => (
+          <button
+            key={p.id}
+            role="option"
+            aria-selected={false}
+            // Keep the field focused (and the list open) through the press.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => chooseSaved(which, p)}
+          >
+            <PlaceIcon kind={p.kind} />
+            <span className="grow ellipsis">
+              <span className="saved-label">{p.label}</span>
+              <span className="muted small ellipsis">{p.address}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    );
+  };
+
   const field = (which: Which, label: string) => (
     <div className="field">
       <label htmlFor={`dir-${which}`}>{label}</label>
       <div className="row">
         <input
           id={`dir-${which}`}
+          ref={which === "start" ? startInput : undefined}
           className="input grow"
           value={text[which]}
+          autoComplete="off"
+          onFocus={() => setSuggestFor(which)}
+          onBlur={() => setSuggestFor((f) => (f === which ? null : f))}
           placeholder={typingLocked ? "Stop to type an address" : searching === which ? "Searching…" : "Address, place or lat, lon"}
           disabled={typingLocked}
           onChange={(e) => {
@@ -238,7 +272,11 @@ export default function DirectionsPanel() {
             setChoices((c) => ({ ...c, [which]: null }));
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void resolve(which);
+            if (e.key === "Enter") {
+              setSuggestFor(null);
+              void resolve(which);
+            }
+            if (e.key === "Escape") setSuggestFor(null);
           }}
         />
         <button
@@ -254,6 +292,7 @@ export default function DirectionsPanel() {
           </button>
         )}
       </div>
+      {suggestions(which)}
       {choices[which] && (
         <div className="choices" role="listbox" aria-label={`Matches for the ${fieldName(which)}`}>
           <span className="muted small">Several places match. Pick one:</span>
@@ -300,7 +339,7 @@ export default function DirectionsPanel() {
             <button className="btn primary grow" onClick={() => void getRoute()} disabled={busy}>
               {busy ? "Routing…" : "Get route"}
             </button>
-            <button className="btn" onClick={() => { planSeq++; clearDirections(); setText({ start: "", end: "" }); setChoices({ start: null, end: null }); }}>
+            <button className="btn" onClick={() => { cancelPlans(); clearDirections(); setText({ start: "", end: "" }); setChoices({ start: null, end: null }); }}>
               Clear
             </button>
           </div>
@@ -318,8 +357,10 @@ export default function DirectionsPanel() {
           </p>
         </div>
 
+        {notice && <div className="callout info" role="status">{notice}</div>}
         {error && <div className="callout error" role="alert">{error}</div>}
 
+        <div ref={resultsRef} />
         {plan && route && (
           <>
             {planHeadlines(plan).map((h, i) => (

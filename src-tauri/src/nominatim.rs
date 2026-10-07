@@ -77,20 +77,22 @@ pub async fn search(http: &HttpClient, query: &str) -> AppResult<Vec<GeocodeResu
     parse_search(&resp.text().await?)
 }
 
-/// Reverse geocode. `Ok(None)` means Nominatim knows nothing near the point
-/// (its "Unable to geocode" answer), which is what open ocean looks like.
-pub async fn reverse(http: &HttpClient, lat: f64, lon: f64) -> AppResult<Option<String>> {
+/// Reverse geocode at a Nominatim detail level (`zoom`: 14 suburb, 18 building). `Ok(None)`
+/// means Nominatim knows nothing near the point (its "Unable to geocode" answer), which is
+/// what open ocean looks like.
+pub async fn reverse(http: &HttpClient, lat: f64, lon: f64, zoom: u8) -> AppResult<Option<String>> {
     http.nominatim_slot().await;
     let url = format!("{ENDPOINT}/reverse");
     let lat_s = format!("{lat:.6}");
     let lon_s = format!("{lon:.6}");
+    let zoom_s = zoom.to_string();
     let resp = http
         .send_with_backoff("Nominatim", || {
             http.client.get(&url).query(&[
                 ("lat", lat_s.as_str()),
                 ("lon", lon_s.as_str()),
                 ("format", "jsonv2"),
-                ("zoom", "14"),
+                ("zoom", zoom_s.as_str()),
             ])
         })
         .await?;

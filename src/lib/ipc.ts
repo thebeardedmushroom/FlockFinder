@@ -18,6 +18,8 @@ import type {
   RouteProgress,
   OsmAuthStatus,
   OuiEntry,
+  PlaceInput,
+  SavedPlace,
   WifiDatasetStatus,
   WifiIngestResult,
   WifiSighting,
@@ -63,8 +65,16 @@ export const api = {
 
   geocode: (query: string) => invoke<GeocodeResult[]>("geocode", { query }),
   checkLocation: (lat: number, lon: number) => invoke<LandCheck>("check_location", { lat, lon }),
+  /** Street-level address at a point (Nominatim); null when it has nothing there. */
+  reverseGeocode: (lat: number, lon: number) => invoke<string | null>("reverse_geocode", { lat, lon }),
   /** Fastest and camera-avoiding routes; progress arrives through onRouteProgress. */
   planRoute: (start: LatLon, end: LatLon) => invoke<RoutePlan>("plan_route", { start, end }),
+
+  listSavedPlaces: () => invoke<SavedPlace[]>("list_saved_places"),
+  savePlace: (input: PlaceInput) => invoke<SavedPlace>("save_saved_place", { input }),
+  deletePlace: (id: number) => invoke<boolean>("delete_saved_place", { id }),
+  /** Every custom place id, in the new order. */
+  reorderPlaces: (ids: number[]) => invoke<SavedPlace[]>("reorder_saved_places", { ids }),
 
   listSubmissions: () => invoke<Submission[]>("list_submissions"),
   createSubmission: (input: SubmissionInput) => invoke<Submission>("create_submission", { input }),

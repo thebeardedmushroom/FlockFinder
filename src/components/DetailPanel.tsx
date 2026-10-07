@@ -4,9 +4,61 @@ import { formatDirection } from "../lib/direction";
 import { compassLabel, formatAgo, formatCoords, formatTime, osmElementUrl } from "../lib/geo";
 import { api } from "../lib/ipc";
 import type { Camera, Submission, WifiSighting } from "../lib/types";
-import { useAppStore } from "../store/useAppStore";
+import { useAppStore, type MapPlace } from "../store/useAppStore";
 import { useState } from "react";
+import { savedPlaceAt } from "../lib/places";
+import PlaceIcon from "./PlaceIcon";
 import { useSheet } from "./useSheet";
+
+/** A searched address (or a dropped pin): save it as a place, or get directions to it. */
+function PlaceDetail({ place }: { place: MapPlace }) {
+  const places = useAppStore((s) => s.savedPlaces) ?? [];
+  const saved = savedPlaceAt(places, place.lat, place.lon);
+  const store = useAppStore.getState;
+  const directionsTo = () => {
+    store().setEndpoint("end", { lat: place.lat, lon: place.lon, label: saved?.label ?? place.name ?? place.address });
+    store().select(null);
+    store().setPanel("directions");
+  };
+  const savePlace = () => {
+    if (saved) {
+      store().select(null);
+      store().openPlaces(saved.kind === "custom" ? { slot: "custom", id: saved.id } : { slot: saved.kind });
+    } else {
+      store().setSavePlaceTarget(place);
+    }
+  };
+  return (
+    <>
+      <div className="section">
+        <div className="row">
+          {saved ? <PlaceIcon kind={saved.kind} /> : null}
+          <strong>{saved?.label ?? place.name ?? "Dropped pin"}</strong>
+        </div>
+        <div className="muted small" style={{ marginTop: 4 }}>{place.address}</div>
+        {saved && saved.address !== place.address && <div className="muted small">Saved as: {saved.address}</div>}
+      </div>
+      <div className="section row wrap">
+        <button className={`btn small save-place-btn ${saved ? "saved" : ""}`} onClick={savePlace} aria-pressed={!!saved}>
+          <PlaceIcon kind="custom" filled={!!saved} />
+          {saved ? "Edit saved place" : "Save place"}
+        </button>
+        <button className="btn small" onClick={directionsTo}>
+          Directions to here
+        </button>
+      </div>
+      <div className="section">
+        <h4>Location</h4>
+        <div className="row between">
+          <code>{formatCoords(place.lat, place.lon)}</code>
+          <button className="btn small" onClick={() => void copyText(formatCoords(place.lat, place.lon))}>
+            Copy
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
 
 function WifiDetail({ sighting }: { sighting: WifiSighting }) {
   const setPendingWatchArea = useAppStore((s) => s.setPendingWatchArea);
@@ -303,7 +355,7 @@ export default function DetailPanel() {
       <div className="panel-header" {...sheet.headerProps}>
         {sheet.grip}
         <span>
-          {selection.kind === "camera" ? "Camera" : selection.kind === "submission" ? "Your submission" : "Wi-Fi sighting"}
+          {selection.kind === "camera" ? "Camera" : selection.kind === "submission" ? "Your submission" : selection.kind === "place" ? "Place" : "Wi-Fi sighting"}
         </span>
         <button className="close" onClick={() => select(null)} aria-label="Close">
           ×
@@ -314,6 +366,8 @@ export default function DetailPanel() {
           <CameraDetail camera={selection.camera} />
         ) : selection.kind === "submission" ? (
           <SubmissionDetail submission={selection.submission} />
+        ) : selection.kind === "place" ? (
+          <PlaceDetail place={selection.place} />
         ) : (
           <WifiDetail sighting={selection.sighting} />
         )}

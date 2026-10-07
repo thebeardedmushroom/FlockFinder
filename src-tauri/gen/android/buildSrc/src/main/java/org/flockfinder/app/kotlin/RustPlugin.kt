@@ -47,6 +47,7 @@ open class RustPlugin : Plugin<Project> {
         }
 
         afterEvaluate {
+            val minSdk = extensions.getByType(ApplicationExtension::class.java).defaultConfig.minSdk ?: 24
             for (profile in listOf("debug", "release")) {
                 val profileCapitalized = profile.replaceFirstChar { it.uppercase() }
                 val buildTask = tasks.maybeCreate(
@@ -72,6 +73,7 @@ open class RustPlugin : Plugin<Project> {
                         rootDirRel = config.rootDirRel
                         target = targetName
                         release = profile == "release"
+                        this.minSdk = minSdk
                     }
 
                     buildTask.dependsOn(targetBuildTask)
