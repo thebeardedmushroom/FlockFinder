@@ -264,7 +264,17 @@ impl NavManager {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         *self.lock() = Some(Running { id, tx: tx.clone(), shared: shared.clone() });
         let me = self.clone();
-        tauri::async_runtime::spawn(drive(me, id, app, session, rx, tx, shared, sim));
+        let task = tauri::async_runtime::spawn(drive(me, id, app.clone(), session, rx, tx, shared, sim));
+        // If the session task dies (a panic), end the session properly rather than leave it
+        // "running" with nothing listening: the service would keep going and the notification's
+        // End would do nothing.
+        let me = self.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = task.await {
+                log::error!("navigation: the session failed: {e}");
+                me.finish(id, &app, Some("Navigation stopped because of an error.".into()));
+            }
+        });
         Ok(view)
     }
 

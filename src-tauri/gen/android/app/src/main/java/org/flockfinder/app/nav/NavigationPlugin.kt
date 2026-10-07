@@ -30,31 +30,13 @@ import app.tauri.plugin.Plugin
 import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.LocationSettingsRequest
+import org.flockfinder.app.MainActivity
 
 @InvokeArg
 class StartArgs {
   lateinit var events: Channel
   var simulated: Boolean = false
   var title: String = ""
-}
-
-@InvokeArg
-class UpdateArgs {
-  var icon: String = "straight"
-  var title: String = ""
-  var text: String = ""
-  var etaMs: Long? = null
-}
-
-@InvokeArg
-class SpeakArgs {
-  var text: String = ""
-  var kind: String = "guidance"
-}
-
-@InvokeArg
-class StopArgs {
-  var afterSpeech: Boolean = false
 }
 
 @InvokeArg
@@ -177,35 +159,19 @@ class NavigationPlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve()
   }
 
-  @Command
-  fun update(invoke: Invoke) {
-    val args = invoke.parseArgs(UpdateArgs::class.java)
-    NavigationService.update(args.icon, args.title, args.text, args.etaMs)
-    invoke.resolve()
-  }
-
-  @Command
-  fun speak(invoke: Invoke) {
-    val args = invoke.parseArgs(SpeakArgs::class.java)
-    NavigationService.speak(args.text, args.kind == "camera")
-    invoke.resolve()
-  }
-
-  @Command
-  fun stop(invoke: Invoke) {
-    val args = invoke.parseArgs(StopArgs::class.java)
-    NavigationService.stop(activity, args.afterSpeech)
-    invoke.resolve()
-  }
+  // The notification, speech and stopping are called from Rust straight on NavigationService
+  // (its bridge* functions): they must work while there is no activity.
 
   @Command
   fun keepScreenOn(invoke: Invoke) {
     val args = invoke.parseArgs(ScreenArgs::class.java)
-    activity.runOnUiThread {
+    // The activity showing the screen now (this plugin's may have been destroyed since).
+    val target = MainActivity.current() ?: activity
+    target.runOnUiThread {
       if (args.on) {
-        activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        target.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
       } else {
-        activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        target.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
       }
     }
     invoke.resolve()

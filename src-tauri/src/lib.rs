@@ -158,6 +158,8 @@ pub fn run() {
             });
 
             scheduler::start(app.handle().clone());
+            #[cfg(target_os = "android")]
+            android_window::init(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -235,12 +237,17 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Flock Finder")
         .run(|_app, _event| {
-            // Android: navigation's foreground service keeps the process alive after the app is
-            // swiped away from recents. Tauri would exit when the activity goes (so keep the
-            // process while a session runs), and a relaunched activity gets no webview
-            // (tauri-apps/tauri#15671), so build the window again when the app comes back.
+            // Android may destroy the activity while the process lives on: navigation's
+            // foreground service keeps it alive with the app in the background, swiped from
+            // recents, or under "Don't keep activities". Tauri would then exit (so keep the
+            // process while a session runs), and the activity Android creates when the app comes
+            // back gets no webview (tauri-apps/tauri#15671): a blank white screen. See
+            // `android_window` for how the window is built again.
             #[cfg(target_os = "android")]
             match _event {
+                tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::Destroyed, .. } => {
+                    android_window::lost();
+                }
                 tauri::RunEvent::ExitRequested { api, .. } => {
                     let navigating = _app
                         .try_state::<std::sync::Arc<nav::runtime::NavManager>>()
@@ -249,15 +256,75 @@ pub fn run() {
                         api.prevent_exit();
                     }
                 }
-                tauri::RunEvent::Resumed => {
-                    if _app.webview_windows().is_empty() {
-                        log::info!("no window after resuming (tauri#15671): building it again");
-                        if let Err(e) = tauri::WebviewWindowBuilder::new(_app, "main", tauri::WebviewUrl::default()).build() {
-                            log::warn!("could not rebuild the window: {e}");
-                        }
-                    }
-                }
                 _ => {}
             }
         });
+}
+
+/// Android: building the window again for an activity Android recreated (tauri#15671).
+///
+/// Tauri doesn't report the new activity (its Resumed event only goes to existing windows), and
+/// the event loop can't tell it from the one being destroyed (which stays registered for a
+/// moment, and a window built for it fails yet still takes the label). So the activity itself
+/// says when it is resumed without a webview (`MainActivity.windowNeeded`), and the window is
+/// built then, only if the old one is gone. The screen then picks up a running session.
+#[cfg(target_os = "android")]
+mod android_window {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::OnceLock;
+    use tao::platform::android::prelude::{JNIEnv, JObject};
+    use tauri::{AppHandle, Manager};
+
+    static APP: OnceLock<AppHandle> = OnceLock::new();
+    /// The window was destroyed with its activity.
+    static LOST: AtomicBool = AtomicBool::new(false);
+
+    pub fn init(app: &AppHandle) {
+        let _ = APP.set(app.clone());
+    }
+
+    pub fn lost() {
+        LOST.store(true, Ordering::Relaxed);
+    }
+
+    fn rebuild(app: &AppHandle) {
+        if !LOST.load(Ordering::Relaxed) || !app.webview_windows().is_empty() {
+            return;
+        }
+        if tao::platform::android::prelude::next_available_activity().is_none() {
+            return;
+        }
+        LOST.store(false, Ordering::Relaxed);
+        log::info!("the activity came back without a window (tauri#15671): building it again");
+        let built = tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0]).and_then(|b| b.build());
+        if let Err(e) = built {
+            log::warn!("could not rebuild the window: {e}");
+        }
+    }
+
+    /// `MainActivity.windowNeeded()`: resumed without a webview.
+    #[no_mangle]
+    pub extern "system" fn Java_org_flockfinder_app_MainActivity_windowNeeded(_env: JNIEnv, _activity: JObject) {
+        let Some(app) = APP.get() else { return };
+        if !LOST.load(Ordering::Relaxed) {
+            return;
+        }
+        let app = app.clone();
+        // tao's Android event loop can miss the wake-up for a task posted while the activity's
+        // own lifecycle events arrive (it takes one per poll), leaving the task queued until
+        // something else happens: post it again until the window is built (it runs once).
+        std::thread::spawn(move || {
+            for _ in 0..30 {
+                let handle = app.clone();
+                if let Err(e) = app.run_on_main_thread(move || rebuild(&handle)) {
+                    log::warn!("could not schedule the window rebuild: {e}");
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                if !LOST.load(Ordering::Relaxed) {
+                    return;
+                }
+            }
+        });
+    }
 }

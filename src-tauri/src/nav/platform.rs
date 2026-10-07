@@ -69,6 +69,8 @@ pub struct Readiness {
 pub trait Platform: Send + Sync {
     /// Start the foreground service and (unless simulated) location updates to `events`.
     fn start(&self, events: EventSink, simulated: bool, title: &str) -> Result<(), String>;
+    // `update`, `speak` and `stop` are called during the session, also when the app's screen
+    // (on Android, its activity) is gone: they must not need it.
     fn update(&self, n: &NotificationContent);
     fn speak(&self, text: &str, kind: SpeechKind);
     /// Stop location and the service (after anything being said, when `after_speech`).
@@ -104,6 +106,12 @@ impl Platform for Desktop {
 #[cfg(target_os = "android")]
 pub mod android {
     use super::*;
+    use std::sync::OnceLock;
+    use tao::platform::android::prelude::jni::{
+        self,
+        objects::{GlobalRef, JClass, JObject, JValue},
+        JNIEnv, JavaVM,
+    };
     use tauri::ipc::{Channel, InvokeResponseBody};
     use tauri::plugin::PluginHandle;
     use tauri::Wry;
@@ -118,9 +126,87 @@ pub mod android {
         title: String,
     }
 
+    /// `NavigationService`'s `bridge*` functions, called over JNI.
+    ///
+    /// Tauri plugin calls are carried out by the activity, and with no activity (Android
+    /// destroyed it while the app was in the background) they panic ("no available activity").
+    /// The session keeps updating the notification, speaking and stopping then, so it reaches
+    /// the service directly instead.
+    struct Bridge {
+        vm: JavaVM,
+        service: GlobalRef,
+    }
+
+    static BRIDGE: OnceLock<Bridge> = OnceLock::new();
+
+    const SERVICE_CLASS: &str = "org.flockfinder.app.nav.NavigationService";
+
+    /// A failed call leaves a Java exception pending: log it and clear it.
+    fn jni_error(env: &mut JNIEnv, e: jni::errors::Error) -> String {
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_describe();
+            let _ = env.exception_clear();
+        }
+        e.to_string()
+    }
+
+    /// Looked up once, through an activity's class loader (a native thread's own loader can't
+    /// see the app's classes); the class stays valid for the life of the process.
+    fn bridge() -> Result<&'static Bridge, String> {
+        if let Some(b) = BRIDGE.get() {
+            return Ok(b);
+        }
+        let ctx = tao::platform::android::prelude::main_android_context()
+            .ok_or("no activity to find the navigation service through")?;
+        let vm = unsafe { JavaVM::from_raw(ctx.java_vm.cast()) }.map_err(|e| e.to_string())?;
+        let service = {
+            let mut env = vm.attach_current_thread_as_daemon().map_err(|e| e.to_string())?;
+            let found = env.with_local_frame(8, |env| -> jni::errors::Result<GlobalRef> {
+                let activity = unsafe { JObject::from_raw(ctx.context_jobject.cast()) };
+                let loader = env.call_method(&activity, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?.l()?;
+                let name = env.new_string(SERVICE_CLASS)?;
+                let class = env
+                    .call_method(&loader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;", &[JValue::Object(&name)])?
+                    .l()?;
+                env.new_global_ref(class)
+            });
+            found.map_err(|e| jni_error(&mut env, e))?
+        };
+        Ok(BRIDGE.get_or_init(|| Bridge { vm, service }))
+    }
+
+    impl Bridge {
+        /// Calls the static `void` function `name`, from any thread, with `strings` as its
+        /// first arguments and `rest` after them.
+        fn call(&self, name: &str, sig: &str, strings: &[&str], rest: &[JValue]) -> Result<(), String> {
+            let mut env = self.vm.attach_current_thread_as_daemon().map_err(|e| e.to_string())?;
+            // (This thread may never return to Java, so its local references are freed here.)
+            let result = env.with_local_frame(8, |env| -> jni::errors::Result<()> {
+                let strings = strings.iter().map(|s| env.new_string(s).map(JObject::from)).collect::<Result<Vec<_>, _>>()?;
+                let mut args: Vec<JValue> = strings.iter().map(JValue::Object).collect();
+                args.extend_from_slice(rest);
+                let class: &JClass = self.service.as_obj().into();
+                env.call_static_method(class, name, sig, &args)?;
+                Ok(())
+            });
+            result.map_err(|e| jni_error(&mut env, e))
+        }
+    }
+
+    fn service_call(name: &str, sig: &str, strings: &[&str], rest: &[JValue]) {
+        if let Err(e) = bridge().and_then(|b| b.call(name, sig, strings, rest)) {
+            log::warn!("navigation: NavigationService.{name} failed: {e}");
+        }
+    }
+
     impl Android {
+        /// A plugin call (made from the screen, so normally with an activity). The panic Tauri
+        /// raises when there is none becomes an error.
         fn call(&self, command: &str, payload: impl Serialize) -> Result<serde_json::Value, String> {
-            self.0.run_mobile_plugin::<serde_json::Value>(command, payload).map_err(|e| e.to_string())
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.0.run_mobile_plugin::<serde_json::Value>(command, payload).map_err(|e| e.to_string())
+            }))
+            .unwrap_or_else(|_| Err(format!("{command}: the app's activity is gone")))
         }
 
         pub fn call_readiness(&self, command: &str) -> Result<Readiness, String> {
@@ -163,25 +249,26 @@ pub mod android {
                 }
                 Ok(())
             });
+            // Find the service now, while the screen (an activity) is certainly there.
+            bridge()?;
             self.call("start", StartArgs { events: channel, simulated, title: title.into() }).map(|_| ())
         }
 
         fn update(&self, n: &NotificationContent) {
-            if let Err(e) = self.call("update", n) {
-                log::warn!("navigation: notification update failed: {e}");
-            }
+            service_call(
+                "bridgeUpdate",
+                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V",
+                &[&n.icon, &n.title, &n.text],
+                &[JValue::Long(n.eta_ms.unwrap_or(-1))],
+            );
         }
 
         fn speak(&self, text: &str, kind: SpeechKind) {
-            if let Err(e) = self.call("speak", serde_json::json!({ "text": text, "kind": kind })) {
-                log::warn!("navigation: speech failed: {e}");
-            }
+            service_call("bridgeSpeak", "(Ljava/lang/String;Z)V", &[text], &[JValue::Bool(u8::from(kind == SpeechKind::Camera))]);
         }
 
         fn stop(&self, after_speech: bool) {
-            if let Err(e) = self.call("stop", serde_json::json!({ "afterSpeech": after_speech })) {
-                log::warn!("navigation: stopping the service failed: {e}");
-            }
+            service_call("bridgeStop", "(Z)V", &[], &[JValue::Bool(u8::from(after_speech))]);
         }
 
         fn readiness(&self) -> Readiness {

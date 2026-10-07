@@ -66,6 +66,10 @@ android-native-keyring-store = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 webpki-roots = "1"
+# The windowing layer under Tauri (same version, so the same Activity registry): tells when a
+# new Activity is waiting for its window, and gives JNI access (via its `jni` re-export) for
+# navigation calls that must work while no Activity exists.
+tao = "0.35"
 
 [profile.release]
 codegen-units = 1
